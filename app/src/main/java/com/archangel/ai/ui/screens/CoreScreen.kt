@@ -81,7 +81,7 @@ fun CoreScreen(
         Spacer(Modifier.height(12.dp))
         // ── Шапка: логотип и состояние мозга
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("ARCHANGEL", style = TextStyles.Digits.copy(fontSize = 17.sp), color = Bone)
+            Text("ARCHANGEL", style = TextStyles.Wordmark)
             Spacer(Modifier.weight(1f))
             Box(
                 Modifier

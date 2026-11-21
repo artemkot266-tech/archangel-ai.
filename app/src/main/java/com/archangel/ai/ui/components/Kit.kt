@@ -53,10 +53,10 @@ import com.archangel.ai.ui.theme.TextStyles
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
 
-/** Служебная подпись КАПСОМ моноширинным шрифтом. */
+/** Короткая служебная подпись. */
 @Composable
 fun MonoLabel(text: String, modifier: Modifier = Modifier, color: Color = Ash, style: TextStyle = TextStyles.Label) {
-    Text(text.uppercase(), modifier = modifier, style = style, color = color, maxLines = 1)
+    Text(text, modifier = modifier, style = style, color = color, maxLines = 1)
 }
 
 /** Заголовок раздела в стиле журнальной вёрстки: «02 — ДИАЛОГ ·········· 14». */
@@ -195,79 +195,8 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Uni
     )
 }
 
-/**
- * Фон всех экранов: тёплый чёрный, поле точек (отсылка к матричным дисплеям),
- * мягкое тепло в центре и плёночное зерно (Android 13+).
- */
+/** Фон всех экранов: ровный нейтральный тёмный, без эффектов. */
 @Composable
-fun AmbientBackground(modifier: Modifier = Modifier, warmth: Color = Ember, content: @Composable BoxScope.() -> Unit) {
-    Box(modifier.fillMaxSize().background(Obsidian)) {
-        Canvas(Modifier.fillMaxSize()) {
-            // тепло, едва заметное
-            drawRect(
-                Brush.radialGradient(
-                    listOf(warmth.copy(alpha = 0.07f), Color.Transparent),
-                    center = Offset(size.width * 0.5f, size.height * 0.36f),
-                    radius = size.maxDimension * 0.6f,
-                )
-            )
-            // поле точек: ярче в центре, гаснет к краям
-            val step = 22.dp.toPx()
-            val r = 0.9.dp.toPx()
-            val cx = size.width / 2
-            val cy = size.height * 0.4f
-            val maxD = size.maxDimension * 0.75f
-            var y = step / 2
-            while (y < size.height) {
-                var x = step / 2
-                while (x < size.width) {
-                    val dx = x - cx
-                    val dy = y - cy
-                    val fade = 1f - (sqrt(dx * dx + dy * dy) / maxD).coerceIn(0f, 1f)
-                    if (fade > 0.05f) drawCircle(Bone.copy(alpha = 0.07f * fade), radius = r, center = Offset(x, y))
-                    x += step
-                }
-                y += step
-            }
-        }
-        content()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !CrashGuard.safeGraphics) GrainOverlay()
-    }
+fun AmbientBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    Box(modifier.fillMaxSize().background(Obsidian), content = content)
 }
-
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
-@Composable
-private fun GrainOverlay() {
-    val shader = remember { runCatching { RuntimeShader(GRAIN_AGSL) }.getOrNull() } ?: return
-    val brush = remember { ShaderBrush(shader) }
-    var seed by remember { mutableFloatStateOf(0f) }
-    // Зерно «живёт» на 12 кадрах в секунду, как плёнка, и почти не нагружает GPU.
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(83)
-            seed = (seed + 17.31f) % 1000f
-        }
-    }
-    Canvas(Modifier.fillMaxSize()) {
-        shader.setFloatUniform("uSeed", seed)
-        shader.setFloatUniform("uAmount", 0.05f)
-        drawRect(brush)
-    }
-}
-
-private const val GRAIN_AGSL = """
-uniform float uSeed;
-uniform float uAmount;
-
-float hash21(float2 p) {
-    p = fract(p * float2(443.897, 441.423));
-    p += dot(p, p.yx + 19.19);
-    return fract((p.x + p.y) * p.x);
-}
-
-half4 main(float2 fragCoord) {
-    float n = hash21(floor(fragCoord) + uSeed);
-    float a = uAmount * n;
-    return half4(half3(a), half(a));
-}
-"""

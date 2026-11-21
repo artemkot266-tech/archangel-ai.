@@ -83,7 +83,7 @@ fun SettingsScreen(
             .padding(horizontal = 24.dp)
     ) {
         SectionHeader("04", "Настройки", modifier = Modifier.padding(vertical = 14.dp))
-        Text("Как думает\nи говорит Архангел.", style = TextStyles.Display.copy(fontSize = 34.sp, lineHeight = 36.sp))
+        Text("Как думает\nи говорит Архангел.", style = TextStyles.Display.copy(fontSize = 30.sp, lineHeight = 36.sp))
 
         // ── Мозг
         Spacer(Modifier.height(28.dp))
@@ -110,7 +110,7 @@ fun SettingsScreen(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             if (s.keyFor(b).isNotBlank()) "ключ есть" else "нет ключа",
-                            style = TextStyles.Label.copy(fontSize = 9.5.sp),
+                            style = TextStyles.Label.copy(fontSize = 11.sp),
                             color = if (active) Obsidian.copy(alpha = 0.6f) else Smoke,
                         )
                     }
@@ -204,7 +204,7 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(32.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("ARCHANGEL", style = TextStyles.Digits.copy(fontSize = 15.sp, color = Smoke))
+            Text("ARCHANGEL", style = TextStyles.Wordmark.copy(color = Smoke))
             Spacer(Modifier.width(10.dp))
             MonoLabel("v${BuildConfig.VERSION_NAME}", color = Smoke)
         }

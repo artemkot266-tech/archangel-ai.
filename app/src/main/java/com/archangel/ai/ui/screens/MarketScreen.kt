@@ -240,7 +240,7 @@ fun MarketScreen(
             BasicTextField(
                 value = amount,
                 onValueChange = { v -> amount = v.filter { it.isDigit() || it == '.' || it == ',' }.take(10) },
-                textStyle = TextStyles.Digits.copy(fontSize = 32.sp),
+                textStyle = TextStyles.Digits.copy(fontSize = 30.sp),
                 cursorBrush = SolidColor(Ember),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),

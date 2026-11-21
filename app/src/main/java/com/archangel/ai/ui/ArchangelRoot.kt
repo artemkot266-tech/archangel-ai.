@@ -136,9 +136,7 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
     BackHandler(enabled = screen != AppScreen.CORE) { screen = AppScreen.CORE }
 
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val warmth = if (vm.core == CoreState.LISTENING || vm.core == CoreState.SPEAKING) Ember else Bone
-
-    AmbientBackground(warmth = warmth) {
+    AmbientBackground {
         Column(
             Modifier
                 .fillMaxSize()
@@ -288,7 +286,7 @@ private fun ConfirmDialog(p: PendingAction, onCancel: () -> Unit, onConfirm: () 
                 MonoLabel("Нужно ваше подтверждение", color = Ember)
             }
             Spacer(Modifier.height(14.dp))
-            Text(p.title, style = TextStyles.Display.copy(fontSize = 36.sp))
+            Text(p.title, style = TextStyles.Display.copy(fontSize = 28.sp))
             Spacer(Modifier.height(10.dp))
             Text(p.details, style = TextStyles.Body.copy(color = Ash))
             if (p.danger) {
