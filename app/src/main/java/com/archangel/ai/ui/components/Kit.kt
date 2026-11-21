@@ -237,7 +237,7 @@ fun AmbientBackground(modifier: Modifier = Modifier, warmth: Color = Ember, cont
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun GrainOverlay() {
-    val shader = remember { RuntimeShader(GRAIN_AGSL) }
+    val shader = remember { runCatching { RuntimeShader(GRAIN_AGSL) }.getOrNull() } ?: return
     val brush = remember { ShaderBrush(shader) }
     var seed by remember { mutableFloatStateOf(0f) }
     // Зерно «живёт» на 12 кадрах в секунду, как плёнка, и почти не нагружает GPU.
@@ -258,14 +258,14 @@ private const val GRAIN_AGSL = """
 uniform float uSeed;
 uniform float uAmount;
 
-float hash(float2 p) {
+float hash21(float2 p) {
     p = fract(p * float2(443.897, 441.423));
     p += dot(p, p.yx + 19.19);
     return fract((p.x + p.y) * p.x);
 }
 
 half4 main(float2 fragCoord) {
-    float n = hash(floor(fragCoord) + uSeed);
+    float n = hash21(floor(fragCoord) + uSeed);
     float a = uAmount * n;
     return half4(half3(a), half(a));
 }

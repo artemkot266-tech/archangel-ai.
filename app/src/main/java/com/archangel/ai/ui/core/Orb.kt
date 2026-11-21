@@ -90,8 +90,11 @@ fun Orb(
         )
     }
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val shader = remember { OrbShader() }
+    // Шейдер компилируется на самом телефоне; если драйвер его не примет — рисуем запасную сферу.
+    val shader = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) runCatching { OrbShader() }.getOrNull() else null
+    }
+    if (shader != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Canvas(m) {
             val voice = if (speaking) 0.35f + 0.3f * sin(phase * 7f) * sin(phase * 2.3f) else smoothLevel
             shader.draw(this, phase, voice, energy, swirl, core, rim)
@@ -175,19 +178,19 @@ uniform float uSwirl;
 uniform float3 uCore;
 uniform float3 uRim;
 
-float hash(float2 p) {
+float hash21(float2 p) {
     p = fract(p * float2(123.34, 456.21));
     p += dot(p, p + 45.32);
     return fract(p.x * p.y);
 }
 
-float noise(float2 p) {
+float vnoise(float2 p) {
     float2 i = floor(p);
     float2 f = fract(p);
-    float a = hash(i);
-    float b = hash(i + float2(1.0, 0.0));
-    float c = hash(i + float2(0.0, 1.0));
-    float d = hash(i + float2(1.0, 1.0));
+    float a = hash21(i);
+    float b = hash21(i + float2(1.0, 0.0));
+    float c = hash21(i + float2(0.0, 1.0));
+    float d = hash21(i + float2(1.0, 1.0));
     float2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
@@ -196,7 +199,7 @@ float fbm(float2 p) {
     float v = 0.0;
     float a = 0.5;
     for (int i = 0; i < 5; i++) {
-        v += a * noise(p);
+        v += a * vnoise(p);
         p = p * 2.03 + float2(1.7, 9.2);
         a *= 0.5;
     }
@@ -219,7 +222,7 @@ half4 main(float2 fragCoord) {
     // Свечение снаружи
     float glow = exp(-max(d, 0.0) * 6.5) * (0.28 + 0.45 * uEnergy + 0.3 * uLevel);
     // Гасим свечение к краю холста, чтобы не было видно квадратной границы.
-    glow *= smoothstep(1.0, 0.72, r);
+    glow *= 1.0 - smoothstep(0.72, 1.0, r);
 
     if (d >= 0.0) {
         float3 g = uRim * glow;
@@ -249,7 +252,7 @@ half4 main(float2 fragCoord) {
     float spec = pow(max(dot(n, l), 0.0), 36.0);
     col += float3(spec * 0.6);
 
-    float aa = smoothstep(0.0, -0.012, d);
+    float aa = 1.0 - smoothstep(-0.012, 0.0, d);
     float3 outCol = col * aa + uRim * glow * (1.0 - aa);
     float alpha = max(aa, glow);
     return half4(half3(outCol), half(alpha));
