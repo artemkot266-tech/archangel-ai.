@@ -42,6 +42,7 @@ import com.archangel.ai.data.ChatMessage
 import com.archangel.ai.data.Role
 import com.archangel.ai.ui.components.Chip
 import com.archangel.ai.ui.components.MonoLabel
+import com.archangel.ai.ui.core.ORB_ASPECT
 import com.archangel.ai.ui.core.Orb
 import com.archangel.ai.ui.theme.Ash
 import com.archangel.ai.ui.theme.Bone
@@ -113,7 +114,7 @@ fun CoreScreen(
                 level = level,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f),
+                    .aspectRatio(ORB_ASPECT),
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onCoreTap()
