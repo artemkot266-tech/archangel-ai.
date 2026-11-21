@@ -20,6 +20,7 @@ import com.archangel.ai.phone.CommandParser
 import com.archangel.ai.phone.PhoneAction
 import com.archangel.ai.phone.PhoneController
 import com.archangel.ai.voice.Speaker
+import com.archangel.ai.voice.VoiceOption
 import com.archangel.ai.voice.SpeechInput
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -36,6 +37,19 @@ data class PendingAction(val action: PhoneAction, val title: String, val details
  * Мозг интерфейса: чат, голос, ядро и выполнение команд.
  * Живёт на уровне активности, поэтому переживает поворот экрана.
  */
+/** Приветствие по времени суток. */
+object Greetings {
+    fun forNow(): String = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+        in 5..11 -> "Доброе утро"
+        in 12..17 -> "Добрый день"
+        in 18..22 -> "Добрый вечер"
+        else -> "Доброй ночи"
+    }
+}
+
+/** Приветствие звучит один раз за запуск, а не при каждом повороте экрана. */
+private var greeted = false
+
 class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = app as ArchangelApp
     val settings: StateFlow<AppSettings> = graph.settings.settings
@@ -73,10 +87,18 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         },
     )
 
+    /** Голоса системного синтезатора — для выбора в настройках и при знакомстве. */
+    var voiceOptions by mutableStateOf<List<VoiceOption>>(emptyList())
+        private set
+
+    /** Если задано — следующая распознанная фраза уходит сюда (например, в поле «Имя»), а не в чат. */
+    var dictation: ((String) -> Unit)? = null
+
     private val speaker = Speaker(
         context = app,
         onStart = { core = CoreState.SPEAKING },
         onDone = { if (core == CoreState.SPEAKING) core = CoreState.IDLE },
+        onVoicesReady = { voiceOptions = it },
     )
 
     init {
@@ -122,6 +144,11 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     private fun onVoiceFinal(text: String) {
         partial = ""
         core = CoreState.IDLE
+        dictation?.let { target ->
+            dictation = null
+            target(text)
+            return
+        }
         if (settings.value.autoSendVoice) send(text, fromVoice = true) else draft = text
     }
 
@@ -169,6 +196,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         val now = SimpleDateFormat("d MMMM yyyy, EEEE, HH:mm", Locale("ru")).format(Date())
         return buildString {
             appendLine(s.persona)
+            if (s.userName.isNotBlank()) appendLine("Пользователя зовут ${s.userName} — обращайся к нему так.")
             appendLine("Ты работаешь в Android-приложении ARCHANGEL AI на телефоне пользователя. Сейчас: $now.")
             appendLine("Не используй markdown-таблицы. Если вопрос про трейдинг — помогай по существу, но помни, что это не финансовый совет.")
             appendLine()
@@ -178,8 +206,52 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun say(text: String) {
         val s = settings.value
-        if (s.speakReplies && speaker.speak(text, s.speechRate)) core = CoreState.SPEAKING
+        if (s.speakReplies && speaker.speak(text, s)) core = CoreState.SPEAKING
         else core = CoreState.IDLE
+    }
+
+    /** Сказать фразу вслух (знакомство, приветствие) — без записи в чат. */
+    fun speakLine(text: String, s: AppSettings = settings.value) {
+        if (speaker.speak(text, s)) core = CoreState.SPEAKING
+    }
+
+    /** «Послушать» голос с ещё не сохранёнными настройками. */
+    fun previewVoice(draft: AppSettings) {
+        val name = draft.userName.ifBlank { "сэр" }
+        speakLine("Добрый вечер, $name. Все системы в норме. Чем могу быть полезен?", draft)
+    }
+
+    /** Приветствие при запуске — один раз за жизнь процесса. */
+    fun greetOnLaunch() {
+        if (greeted) return
+        greeted = true
+        val s = settings.value
+        if (!s.onboardingDone || !s.greetOnLaunch) return
+        val hello = Greetings.forNow() + (if (s.userName.isNotBlank()) ", ${s.userName}." else ".")
+        val tail = if (s.brainReady) " Я на связи." else
+            " Мой мозг пока не подключён — откройте настройки, я подскажу, где взять бесплатный ключ."
+        hint = ""
+        speakLine(hello + tail)
+    }
+
+    /** Проверка ключа мозга короткими запросом. */
+    fun testBrain(draft: AppSettings, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                graph.brain.ask(
+                    draft, "Ты — проверка связи. Ответь одним словом.",
+                    listOf(Turn("user", "Скажи: готов")), maxTokens = 400,
+                )
+                onResult(true, "Ключ работает — ${draft.brain.title} на связи.")
+            } catch (e: FriendlyException) {
+                val msg = e.message.orEmpty()
+                // Пустой ответ «думающей» модели — ключ при этом рабочий
+                if (msg.contains("пустой")) onResult(true, "Ключ работает — ${draft.brain.title} на связи.")
+                else onResult(false, msg)
+            } catch (e: Exception) {
+                onResult(false, "Не удалось проверить: ${e.javaClass.simpleName}")
+            }
+        }
     }
 
     fun stopSpeaking() {

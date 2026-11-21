@@ -25,7 +25,7 @@ class BrainClient {
         if (clean.isEmpty()) throw FriendlyException("Пустой запрос.")
         return when (settings.brain) {
             Brain.CLAUDE -> askClaude(settings, key, system, clean, maxTokens)
-            Brain.DEEPSEEK, Brain.OPENAI -> askOpenAiCompatible(settings, key, system, clean, maxTokens)
+            else -> askOpenAiCompatible(settings, key, system, clean, maxTokens)
         }
     }
 
@@ -105,6 +105,7 @@ class BrainClient {
             400 -> "Запрос отклонён (проверьте название модели)."
             401, 403 -> "Ключ ${brain.title} не подходит или у него нет доступа."
             402 -> "На балансе ${brain.title} закончились средства."
+            413 -> "Слишком длинный запрос для этой модели. Очистите историю чата."
             404 -> "Модель или адрес API не найдены."
             429 -> "Слишком много запросов или исчерпан лимит. Подождите немного."
             in 500..599 -> "Сервер ${brain.title} сейчас недоступен."

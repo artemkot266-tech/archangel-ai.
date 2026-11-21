@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import com.archangel.ai.BuildConfig
 import com.archangel.ai.data.AppSettings
 import com.archangel.ai.data.Brain
+import com.archangel.ai.voice.VoiceOption
+import androidx.compose.ui.platform.LocalUriHandler
 import com.archangel.ai.ui.components.MonoLabel
 import com.archangel.ai.ui.components.Pill
 import com.archangel.ai.ui.components.SectionHeader
@@ -66,11 +68,18 @@ import java.util.Locale
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
+    voices: List<VoiceOption>,
     onSave: (AppSettings) -> Unit,
     onClearHistory: () -> Unit,
+    onPreviewVoice: (AppSettings) -> Unit,
+    onTestBrain: (AppSettings, (Boolean, String) -> Unit) -> Unit,
+    onRestartOnboarding: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val uri = LocalUriHandler.current
     var s by remember(settings) { mutableStateOf(settings) }
+    var brainStatus by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var checking by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     LaunchedEffect(saved) { if (saved) { delay(2000); saved = false } }
@@ -89,42 +98,35 @@ fun SettingsScreen(
         Spacer(Modifier.height(28.dp))
         MonoLabel("Мозг", color = Bone)
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Brain.entries.forEach { b ->
-                val active = s.brain == b
-                Surface(
-                    onClick = { s = s.copy(brain = b) },
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (active) Bone else Color.Transparent,
-                    border = if (active) null else BorderStroke(1.dp, Hairline),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 64.dp),
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(
-                            if (b == Brain.OPENAI) "Другой" else b.title,
-                            style = TextStyles.Button,
-                            color = if (active) Obsidian else Bone,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            if (s.keyFor(b).isNotBlank()) "ключ есть" else "нет ключа",
-                            style = TextStyles.Label.copy(fontSize = 11.sp),
-                            color = if (active) Obsidian.copy(alpha = 0.6f) else Smoke,
-                        )
-                    }
-                }
-            }
-        }
+        BrainTiles(Brain.entries, s.brain) { s = s.copy(brain = it) }
         Spacer(Modifier.height(14.dp))
         Field(
             label = "API-ключ ${s.brain.title}",
             value = s.keyFor(),
-            onChange = { v -> s = s.copy(keys = s.keys + (s.brain to v)) },
+            onChange = { v -> brainStatus = null; s = s.copy(keys = s.keys + (s.brain to v)) },
             secret = true,
-            hint = "Получить: ${s.brain.keyHint}",
+            hint = s.brain.note,
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill(
+                "Получить ключ",
+                onClick = { runCatching { uri.openUri(s.brain.keyUrl) } },
+                modifier = Modifier.weight(1f),
+            )
+            Pill(
+                if (checking) "Проверяю…" else "Проверить",
+                enabled = s.brainReady && !checking,
+                onClick = {
+                    checking = true
+                    onTestBrain(s) { ok, msg -> brainStatus = ok to msg; checking = false }
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        brainStatus?.let { (ok, msg) ->
+            Text(msg, style = TextStyles.BodySmall.copy(color = if (ok) Bone else Ember), modifier = Modifier.padding(top = 8.dp))
+        }
+        Spacer(Modifier.height(14.dp))
         Field(
             label = "Модель",
             value = s.models[s.brain].orEmpty(),
@@ -145,10 +147,19 @@ fun SettingsScreen(
             singleLine = false,
         )
 
+        // ── Обращение
+        Spacer(Modifier.height(20.dp))
+        MonoLabel("Знакомство", color = Bone)
+        Spacer(Modifier.height(10.dp))
+        Field(label = "Как обращаться ко мне", value = s.userName, placeholder = "Имя", onChange = { s = s.copy(userName = it) })
+        Toggle("Приветствовать при запуске", s.greetOnLaunch) { s = s.copy(greetOnLaunch = it) }
+
         // ── Голос
         Spacer(Modifier.height(20.dp))
         MonoLabel("Голос", color = Bone)
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(10.dp))
+        VoicePicker(s, voices, onChange = { s = it }, onPreview = { onPreviewVoice(s) })
+        Spacer(Modifier.height(10.dp))
         Toggle("Озвучивать ответы", s.speakReplies) { s = s.copy(speakReplies = it) }
         Toggle("Отправлять сразу после фразы", s.autoSendVoice) { s = s.copy(autoSendVoice = it) }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
@@ -201,6 +212,9 @@ fun SettingsScreen(
             },
             modifier = Modifier.fillMaxWidth(),
         )
+
+        Spacer(Modifier.height(10.dp))
+        Pill("Пройти знакомство заново", onClick = onRestartOnboarding, modifier = Modifier.fillMaxWidth())
 
         Spacer(Modifier.height(32.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

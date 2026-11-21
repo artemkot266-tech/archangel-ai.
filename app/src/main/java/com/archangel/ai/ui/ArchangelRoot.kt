@@ -66,6 +66,7 @@ import com.archangel.ai.ui.components.Pill
 import com.archangel.ai.ui.screens.ChatScreen
 import com.archangel.ai.ui.screens.CoreScreen
 import com.archangel.ai.ui.screens.MarketScreen
+import com.archangel.ai.ui.screens.OnboardingScreen
 import com.archangel.ai.ui.screens.SettingsScreen
 import com.archangel.ai.ui.screens.lastAssistantReply
 import com.archangel.ai.ui.theme.Ash
@@ -136,6 +137,32 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
     BackHandler(enabled = screen != AppScreen.CORE) { screen = AppScreen.CORE }
 
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    // Приветствие голосом при запуске (после знакомства)
+    LaunchedEffect(Unit) { vm.greetOnLaunch() }
+
+    if (!settings.onboardingDone) {
+        AmbientBackground {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding()
+            ) {
+                OnboardingScreen(
+                    vm = vm,
+                    initial = settings,
+                    onMic = { listen() },
+                    onFinish = { done ->
+                        app.settings.save(done)
+                        screen = AppScreen.CORE
+                    },
+                )
+            }
+        }
+        return
+    }
+
     AmbientBackground {
         Column(
             Modifier
@@ -180,8 +207,12 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
                     )
                     AppScreen.SETTINGS -> SettingsScreen(
                         settings = settings,
+                        voices = vm.voiceOptions,
                         onSave = { app.settings.save(it); market.loadBalances() },
                         onClearHistory = { vm.clearHistory() },
+                        onPreviewVoice = { vm.previewVoice(it) },
+                        onTestBrain = vm::testBrain,
+                        onRestartOnboarding = { app.settings.update { it.copy(onboardingDone = false) } },
                     )
                 }
             }
