@@ -1,0 +1,58 @@
+package com.archangel.ai
+
+import com.archangel.ai.phone.AppScreen
+import com.archangel.ai.phone.CommandParser
+import com.archangel.ai.phone.PhoneAction
+import com.archangel.ai.phone.VolumeDir
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class CommandParserTest {
+    private fun p(s: String) = CommandParser.parse(s)
+
+    @Test fun call() = assertEquals(PhoneAction.Call("маме"), p("Позвони маме"))
+    @Test fun callWithWakeWord() = assertEquals(PhoneAction.Call("саше"), p("Архангел, набери Саше"))
+    @Test fun alarm() = assertEquals(PhoneAction.Alarm(7, 30), p("Поставь будильник на 7:30"))
+    @Test fun alarmHourOnly() = assertEquals(PhoneAction.Alarm(6, 0), p("разбуди меня в 6"))
+    @Test fun timerMinutes() = assertEquals(PhoneAction.Timer(300), p("Таймер на 5 минут"))
+    @Test fun timerSeconds() = assertEquals(PhoneAction.Timer(30), p("засеки 30 секунд"))
+    @Test fun torchOn() = assertEquals(PhoneAction.Flashlight(true), p("Включи фонарик"))
+    @Test fun torchOff() = assertEquals(PhoneAction.Flashlight(false), p("выключи фонарик"))
+    @Test fun louder() = assertEquals(PhoneAction.Volume(VolumeDir.UP), p("сделай громче"))
+    @Test fun openApp() = assertEquals(PhoneAction.OpenApp("телеграм"), p("Открой Телеграм"))
+    @Test fun openMarketScreen() = assertEquals(PhoneAction.Screen(AppScreen.MARKET), p("открой рынок"))
+    @Test fun chart() = assertEquals(PhoneAction.Market("BTCUSDT"), p("График биткоина"))
+    @Test fun rate() = assertEquals(PhoneAction.Market("ETHUSDT"), p("курс эфира"))
+    @Test fun buy() = assertEquals(PhoneAction.Order(true, "BTCUSDT", 20.0), p("Купи биткоин на 20 долларов"))
+    @Test fun sell() = assertEquals(PhoneAction.Order(false, "SOLUSDT", 12.5), p("продай солану на 12,5"))
+    @Test fun smsExplicit() = assertEquals(PhoneAction.Sms("саше", "привет"), p("отправь смс саше текст привет"))
+    @Test fun smsWithChto() = assertEquals(PhoneAction.Sms("маме", "я опоздаю"), p("напиши маме что я опоздаю"))
+    @Test fun poemIsNotSms() = assertNull(p("напиши стихотворение о море"))
+    @Test fun questionGoesToBrain() = assertNull(p("Как работает биткоин?"))
+    @Test fun navigate() = assertEquals(PhoneAction.Navigate("вокзала"), p("Проложи маршрут до вокзала"))
+    @Test fun search() = assertEquals(PhoneAction.Search("рецепт борща"), p("найди рецепт борща"))
+    @Test fun callNeedsConfirmation() = assertTrue(PhoneAction.Call("x").needsConfirmation)
+
+    @Test fun actionTag() {
+        val (text, action) = CommandParser.extractActionTag(
+            "Ставлю будильник.\n[[ACTION {\"type\":\"alarm\",\"hour\":8,\"minute\":15,\"label\":\"работа\"}]]"
+        )
+        assertEquals("Ставлю будильник.", text)
+        assertEquals(PhoneAction.Alarm(8, 15, "работа"), action)
+    }
+
+    @Test fun orderTag() {
+        val (_, action) = CommandParser.extractActionTag(
+            "Ок. [[ACTION {\"type\":\"order\",\"side\":\"SELL\",\"symbol\":\"ethusdt\",\"usdt\":15}]]"
+        )
+        assertEquals(PhoneAction.Order(false, "ETHUSDT", 15.0), action)
+    }
+
+    @Test fun noTag() {
+        val (text, action) = CommandParser.extractActionTag("Просто ответ")
+        assertEquals("Просто ответ", text)
+        assertNull(action)
+    }
+}
