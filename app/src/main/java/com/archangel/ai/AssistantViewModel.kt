@@ -205,7 +205,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             }
             is PhoneAction.Order -> {
                 val s = settings.value
-                val mode = if (s.binanceTestnet) "ТЕСТНЕТ — ненастоящие деньги" else "РЕАЛЬНЫЙ СЧЁТ"
+                val mode = if (s.binanceTestnet) "ДЕМО-СЧЁТ — ненастоящие деньги" else "РЕАЛЬНЫЙ СЧЁТ"
                 pending = PendingAction(
                     action = action,
                     title = (if (action.buy) "Купить " else "Продать ") + action.symbol.removeSuffix("USDT"),
@@ -255,7 +255,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 val r = graph.binance.marketOrder(a.symbol, a.buy, a.usdt, s.binanceKey, s.binanceSecret, s.binanceTestnet)
                 val coin = a.symbol.removeSuffix("USDT")
                 val verb = if (a.buy) "Куплено" else "Продано"
-                val tag = if (s.binanceTestnet) " · тестнет" else ""
+                val tag = if (s.binanceTestnet) " · демо-счёт" else ""
                 reply(
                     "$verb ${"%.6f".format(Locale.US, r.executedQty)} $coin на ${Indicators.formatPrice(r.quoteQty)} USDT " +
                         "(средняя ${Indicators.formatPrice(r.avgPrice)}). Статус: ${r.status}$tag.",

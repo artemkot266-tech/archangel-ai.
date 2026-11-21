@@ -32,12 +32,12 @@ data class OrderResult(
 /**
  * Клиент Binance Spot.
  * Котировки и графики всегда берутся с настоящей биржи (публичные данные, ключ не нужен).
- * Сделки и баланс — с тестовой (testnet) или реальной биржи, в зависимости от настройки.
+ * Сделки и баланс — с демо-счёта (Binance Demo Mode) или реального счёта, в зависимости от настройки.
  */
 class BinanceClient {
     private val publicBase = "https://api.binance.com"
     private fun tradeBase(testnet: Boolean) =
-        if (testnet) "https://testnet.binance.vision" else "https://api.binance.com"
+        if (testnet) "https://demo-api.binance.com" else "https://api.binance.com"
 
     /** Разница часов телефона и биржи — иначе подписанные запросы отклоняются (-1021). */
     private var timeOffset: Long? = null

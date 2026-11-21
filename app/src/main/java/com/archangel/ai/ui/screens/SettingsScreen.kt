@@ -171,9 +171,9 @@ fun SettingsScreen(
         Field(label = "API Key", value = s.binanceKey, onChange = { s = s.copy(binanceKey = it) }, secret = true)
         Field(label = "Secret Key", value = s.binanceSecret, onChange = { s = s.copy(binanceSecret = it) }, secret = true)
         Toggle(
-            "Тестовая биржа (testnet)",
+            "Демо-счёт (Binance Demo Trading)",
             s.binanceTestnet,
-            sub = if (s.binanceTestnet) "Ключ с testnet.binance.vision, деньги ненастоящие"
+            sub = if (s.binanceTestnet) "Ключ: Binance → Demo Trading → API Key Management. Деньги ненастоящие"
             else "ВНИМАНИЕ: сделки на реальные деньги",
             subColor = if (s.binanceTestnet) Smoke else Ember,
         ) { s = s.copy(binanceTestnet = it) }

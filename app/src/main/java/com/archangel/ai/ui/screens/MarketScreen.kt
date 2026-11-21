@@ -88,7 +88,7 @@ fun MarketScreen(
     ) {
         SectionHeader(
             "03", "Рынок",
-            trailing = if (settings.binanceTestnet) "Тестнет" else "Реальный счёт",
+            trailing = if (settings.binanceTestnet) "Демо-счёт" else "Реальный счёт",
             modifier = Modifier.padding(vertical = 14.dp),
         )
 
@@ -268,14 +268,14 @@ fun MarketScreen(
         Spacer(Modifier.height(10.dp))
         Text(
             "Каждый ордер исполняется только после вашего подтверждения. " +
-                if (settings.binanceTestnet) "Сейчас включён тестнет — деньги ненастоящие."
+                if (settings.binanceTestnet) "Сейчас включён демо-счёт — деньги ненастоящие."
                 else "Включён РЕАЛЬНЫЙ счёт.",
             style = TextStyles.BodySmall.copy(color = if (settings.binanceTestnet) Smoke else Ember),
         )
 
         // ── Баланс
         Spacer(Modifier.height(28.dp))
-        SectionHeader("03.2", "Баланс", trailing = if (settings.binanceTestnet) "тестнет" else "live")
+        SectionHeader("03.2", "Баланс", trailing = if (settings.binanceTestnet) "демо" else "live")
         Spacer(Modifier.height(12.dp))
         if (vm.balanceMessage.isNotBlank()) Text(vm.balanceMessage, style = TextStyles.BodySmall)
         vm.balances.take(12).forEach { b ->
