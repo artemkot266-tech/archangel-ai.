@@ -218,6 +218,8 @@ half4 main(float2 fragCoord) {
 
     // Свечение снаружи
     float glow = exp(-max(d, 0.0) * 6.5) * (0.28 + 0.45 * uEnergy + 0.3 * uLevel);
+    // Гасим свечение к краю холста, чтобы не было видно квадратной границы.
+    glow *= smoothstep(1.0, 0.72, r);
 
     if (d >= 0.0) {
         float3 g = uRim * glow;

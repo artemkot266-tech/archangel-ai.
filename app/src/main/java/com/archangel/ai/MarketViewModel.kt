@@ -77,7 +77,10 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshQuietly() = load(showSpinner = false)
 
     private fun load(showSpinner: Boolean) {
-        if (loadJob?.isActive == true) return
+        // Тихое обновление не мешает текущей загрузке; явная — отменяет старую (например, при смене монеты).
+        if (loadJob?.isActive == true) {
+            if (showSpinner) loadJob?.cancel() else return
+        }
         val sym = symbol
         val iv = interval
         if (showSpinner) loading = true
