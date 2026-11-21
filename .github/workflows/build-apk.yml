@@ -1,0 +1,57 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+
+      # Ошибки компиляции публикуются как аннотации — их видно на странице запуска.
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -E "^e: |What went wrong|error:|Could not|> " build.log | head -40 | while IFS= read -r line; do
+            echo "::error::${line//%/%25}"
+          done
+
+      - name: Rename APK
+        run: |
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          cp app/build/outputs/apk/debug/app-debug.apk "ARCHANGEL_AI-$VERSION.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARCHANGEL_AI-apk
+          path: ARCHANGEL_AI-*.apk
+
+      # Каждая успешная сборка выкладывается в Releases: оттуда APK удобно скачать с телефона.
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: ARCHANGEL AI ${{ env.VERSION }} (сборка ${{ github.run_number }})
+          body: "Список изменений — в CHANGELOG.md. Установите APK на телефон и разрешите установку из неизвестных источников."
+          files: ARCHANGEL_AI-*.apk
+          make_latest: true
