@@ -77,8 +77,21 @@ import com.archangel.ai.ui.theme.Smoke
 import com.archangel.ai.ui.theme.Surface1
 import com.archangel.ai.ui.theme.TextStyles
 
+/** Что открыть при запуске из ярлыка. */
+enum class LaunchAction {
+    VOICE, MARKET;
+
+    companion object {
+        fun from(intent: android.content.Intent?): LaunchAction? = when (intent?.action) {
+            "com.archangel.ai.action.VOICE" -> VOICE
+            "com.archangel.ai.action.MARKET" -> MARKET
+            else -> null
+        }
+    }
+}
+
 @Composable
-fun ArchangelRoot() {
+fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () -> Unit = {}) {
     val vm: AssistantViewModel = viewModel()
     val market: MarketViewModel = viewModel()
     val context = LocalContext.current
@@ -108,6 +121,17 @@ fun ArchangelRoot() {
     }
     LaunchedEffect(vm.marketRequest) {
         vm.marketRequest?.let { market.select(it); vm.marketRequest = null }
+    }
+    LaunchedEffect(launchAction) {
+        when (launchAction) {
+            LaunchAction.VOICE -> {
+                screen = AppScreen.CORE
+                if (vm.core != CoreState.LISTENING) listen()
+            }
+            LaunchAction.MARKET -> screen = AppScreen.MARKET
+            null -> return@LaunchedEffect
+        }
+        onLaunchActionHandled()
     }
     BackHandler(enabled = screen != AppScreen.CORE) { screen = AppScreen.CORE }
 

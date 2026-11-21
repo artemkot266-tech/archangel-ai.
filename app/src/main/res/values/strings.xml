@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ARCHANGEL AI</string>
+    <string name="shortcut_voice">Голос</string>
+    <string name="shortcut_voice_long">Говорить с Архангелом</string>
+    <string name="shortcut_market">Рынок</string>
 </resources>

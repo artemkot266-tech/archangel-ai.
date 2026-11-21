@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ярлыки по долгому нажатию на иконку: сразу слушать или открыть рынок. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="voice"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_voice"
+        android:shortcutShortLabel="@string/shortcut_voice"
+        android:shortcutLongLabel="@string/shortcut_voice_long">
+        <intent
+            android:action="com.archangel.ai.action.VOICE"
+            android:targetPackage="com.archangel.ai"
+            android:targetClass="com.archangel.ai.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="market"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_market"
+        android:shortcutShortLabel="@string/shortcut_market"
+        android:shortcutLongLabel="@string/shortcut_market">
+        <intent
+            android:action="com.archangel.ai.action.MARKET"
+            android:targetPackage="com.archangel.ai"
+            android:targetClass="com.archangel.ai.MainActivity" />
+    </shortcut>
+</shortcuts>
