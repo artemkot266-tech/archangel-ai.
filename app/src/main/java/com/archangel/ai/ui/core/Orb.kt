@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import com.archangel.ai.CrashGuard
 import com.archangel.ai.core.CoreState
 import com.archangel.ai.ui.theme.Bone
 import com.archangel.ai.ui.theme.Ember
@@ -92,7 +93,9 @@ fun Orb(
 
     // Шейдер компилируется на самом телефоне; если драйвер его не примет — рисуем запасную сферу.
     val shader = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) runCatching { OrbShader() }.getOrNull() else null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !CrashGuard.safeGraphics) {
+            runCatching { OrbShader() }.getOrNull()
+        } else null
     }
     if (shader != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Canvas(m) {

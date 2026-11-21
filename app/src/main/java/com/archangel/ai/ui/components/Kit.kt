@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.archangel.ai.CrashGuard
 import com.archangel.ai.ui.theme.Ash
 import com.archangel.ai.ui.theme.Bone
 import com.archangel.ai.ui.theme.Ember
@@ -230,7 +231,7 @@ fun AmbientBackground(modifier: Modifier = Modifier, warmth: Color = Ember, cont
             }
         }
         content()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) GrainOverlay()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !CrashGuard.safeGraphics) GrainOverlay()
     }
 }
 

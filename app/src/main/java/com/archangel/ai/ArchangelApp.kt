@@ -20,6 +20,7 @@ class ArchangelApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashGuard.install(this) // первым делом — чтобы поймать даже ошибку при старте
         settings = SettingsStore(this)
         chatStore = ChatStore(this)
         phone = PhoneController(this)
