@@ -369,7 +369,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     // ───────────── Офлайн-слух (Vosk) ─────────────
 
-    private val offline = com.archangel.ai.voice.OfflineWake(graph, onWake = { onOfflineWake() })
+    private val offline = com.archangel.ai.voice.OfflineWake(graph, onWake = { rest -> onOfflineWake(rest) })
     var offlineState by mutableStateOf(offline.state())
         private set
     var offlineProgress by mutableStateOf(0f)
@@ -393,10 +393,17 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         offlineState = offline.state()
     }
 
-    /** Офлайн-слух услышал имя: короткая вибрация и сразу слушаем команду. */
-    private fun onOfflineWake() {
+    /**
+     * Офлайн-слух услышал имя. Если в той же фразе уже есть понятная команда («Архангел, включи музыку») —
+     * выполняем сразу, без второго микрофона. Иначе — вибрация и слушаем команду.
+     */
+    private fun onOfflineWake(rest: String) {
         if (!standbyWanted()) return
         wakeBuzz()
+        if (rest.isNotBlank() && CommandParser.parse(rest, wakeNames()) != null) {
+            send(rest, fromVoice = true)
+            return
+        }
         // Офлайн-слух только что отпустил микрофон — даём ему мгновение
         startListening(delayMs = 350)
     }

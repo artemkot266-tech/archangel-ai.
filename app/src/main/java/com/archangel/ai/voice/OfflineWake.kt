@@ -6,7 +6,6 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
-import org.json.JSONArray
 import org.json.JSONObject
 import org.vosk.LibVosk
 import org.vosk.LogLevel
@@ -27,8 +26,8 @@ import kotlin.math.max
  */
 class OfflineWake(
     private val context: Context,
-    /** Услышал имя. Вызывается на главном потоке. */
-    private val onWake: () -> Unit,
+    /** Услышал имя. rest — что сказано после имени в той же фразе (может быть пусто). Главный поток. */
+    private val onWake: (rest: String) -> Unit,
 ) {
     enum class State { MISSING, DOWNLOADING, READY, FAILED }
 
@@ -114,8 +113,10 @@ class OfflineWake(
             running = false
             return
         }
-        val grammar = JSONArray(words + "[unk]").toString()
-        val rec = try { Recognizer(m, RATE.toFloat(), grammar) } catch (e: Throwable) { running = false; return }
+        // Свободное распознавание (без словаря из одного слова): иначе любой похожий звук
+        // «натягивается» на имя и микрофон включается сам по себе
+        val rec = try { Recognizer(m, RATE.toFloat()) } catch (e: Throwable) { running = false; return }
+        rec.setWords(true)
         val minBuf = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val audio = try {
             AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, max(minBuf, RATE))
@@ -128,20 +129,15 @@ class OfflineWake(
         try {
             audio.startRecording()
             val buf = ByteArray(3200) // 100 мс
-            var stable = 0
             while (running) {
                 val n = audio.read(buf, 0, buf.size)
                 if (n <= 0) continue
-                val final = rec.acceptWaveForm(buf, n)
-                val text = if (final) JSONObject(rec.result).optString("text") else JSONObject(rec.partialResult).optString("partial")
-                // Промежуточный результат должен продержаться 2 шага (~200 мс) — меньше ложных срабатываний
-                stable = if (heard(text, words)) stable + 1 else 0
-                if ((final && stable > 0) || stable >= 2) {
-                    rec.reset()
-                    running = false
-                    main.post { onWake() }
-                    break
-                }
+                // Решение — только по законченной фразе, никаких срабатываний «на полуслове»
+                if (!rec.acceptWaveForm(buf, n)) continue
+                val rest = match(rec.result, words) ?: continue
+                running = false
+                main.post { onWake(rest) }
+                break
             }
         } catch (e: Exception) {
             running = false
@@ -162,10 +158,23 @@ class OfflineWake(
             (names + "архангел").flatMap { it.lowercase().replace('ё', 'е').split(Regex("[^\\p{L}]+")) }
                 .filter { it.length >= 3 }.distinct()
 
-        /** Услышал ли распознаватель одно из имён (словарь ограничен, лишнее приходит как [unk]). */
-        fun heard(text: String, words: List<String>): Boolean {
-            val t = text.lowercase().replace('ё', 'е')
-            return t.isNotBlank() && t.split(' ').any { it in words }
+        /** Минимальная уверенность распознавателя в слове-имени. */
+        const val MIN_CONF = 0.8
+
+        /**
+         * Разбирает итог Vosk ({"result":[{"word","conf"}…],"text"}). Имя должно быть отдельным словом
+         * с уверенностью ≥ MIN_CONF и стоять в начале фразы (не дальше второго слова) — «я смотрел
+         * фильм про архангела» не сработает. Возвращает слова после имени или null.
+         */
+        fun match(json: String, words: List<String>): String? {
+            val o = runCatching { JSONObject(json) }.getOrNull() ?: return null
+            val arr = o.optJSONArray("result") ?: return null
+            val list = (0 until arr.length()).map { arr.getJSONObject(it) }
+            val idx = list.indexOfFirst { w ->
+                w.optString("word").lowercase().replace('ё', 'е') in words && w.optDouble("conf", 0.0) >= MIN_CONF
+            }
+            if (idx < 0 || idx > 1) return null
+            return list.drop(idx + 1).joinToString(" ") { it.optString("word") }.trim()
         }
     }
 }
