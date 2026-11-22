@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'proposal/**' ]
   workflow_dispatch:
 
 permissions:
@@ -38,8 +38,21 @@ jobs:
       - name: Rename APK
         run: |
           VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            NAME="ARCHANGEL_AI-$VERSION.apk"
+            echo "TAG=build-${{ github.run_number }}" >> $GITHUB_ENV
+            echo "TITLE=ARCHANGEL AI $VERSION (сборка ${{ github.run_number }})" >> $GITHUB_ENV
+            echo "IS_MAIN=true" >> $GITHUB_ENV
+          else
+            # Предложение агента: отдельная тестовая сборка, не «последняя».
+            SLUG="${GITHUB_REF_NAME#proposal/}"
+            NAME="ARCHANGEL_AI-$VERSION-test-$SLUG.apk"
+            echo "TAG=proposal-${{ github.run_number }}" >> $GITHUB_ENV
+            echo "TITLE=Предложение: $SLUG (сборка ${{ github.run_number }})" >> $GITHUB_ENV
+            echo "IS_MAIN=false" >> $GITHUB_ENV
+          fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          cp app/build/outputs/apk/release/app-release.apk "ARCHANGEL_AI-$VERSION.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$NAME"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -50,8 +63,10 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: ARCHANGEL AI ${{ env.VERSION }} (сборка ${{ github.run_number }})
-          body: "Список изменений — в CHANGELOG.md. Установите APK на телефон и разрешите установку из неизвестных источников."
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ env.TITLE }}
+          body: "Список изменений — в CHANGELOG.md (для предложений — в PROPOSALS.md ветки). Установите APK на телефон."
           files: ARCHANGEL_AI-*.apk
-          make_latest: true
+          prerelease: ${{ env.IS_MAIN != 'true' }}
+          make_latest: ${{ env.IS_MAIN == 'true' }}
