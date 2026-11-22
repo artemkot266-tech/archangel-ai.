@@ -241,11 +241,39 @@ fun SettingsScreen(
             Spacer(Modifier.height(6.dp))
             Pill("Назначить помощником по умолчанию", onClick = { com.archangel.ai.features.BackgroundHelp.defaultAssistant(ctxO) }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
+            var disclosure by remember { mutableStateOf(false) }
             Toggle(
                 "Слушать в фоне — как умная колонка",
                 s.standbyBackground,
                 sub = "Работает, даже когда приложение свёрнуто или экран выключен. В шторке будет значок «${s.wakeName.ifBlank { "Архангел" }} слушает».",
-            ) { s = s.copy(standbyBackground = it) }
+            ) { on -> if (on) disclosure = true else s = s.copy(standbyBackground = false) }
+            if (disclosure) {
+                // Заметное раскрытие (требование Google Play): что и зачем делается с микрофоном в фоне
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { disclosure = false },
+                    title = { Text("Микрофон в фоне", style = TextStyles.Title) },
+                    text = {
+                        Text(
+                            "Чтобы откликаться на имя «${s.wakeName.ifBlank { "Архангел" }}», когда приложение свёрнуто или экран выключен, " +
+                                "Архангел будет постоянно слушать микрофон в фоне.\n\n" +
+                                "• Звук обрабатывается только на телефоне офлайн-слухом, никуда не отправляется и не записывается.\n" +
+                                "• После имени ваша команда передаётся распознаванию речи Android (обычно Google), а текст запроса — выбранному вами ИИ.\n" +
+                                "• Пока режим включён, в шторке видно уведомление с кнопкой «Выключить».\n\n" +
+                                "Выключить можно в любой момент здесь же.",
+                            style = TextStyles.BodySmall.copy(color = Bone),
+                        )
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(onClick = { s = s.copy(standbyBackground = true); disclosure = false }) {
+                            Text("Разрешаю", color = Ember)
+                        }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(onClick = { disclosure = false }) { Text("Не сейчас", color = Ash) }
+                    },
+                    containerColor = com.archangel.ai.ui.theme.Surface1,
+                )
+            }
             if (s.standbyBackground) {
                 Toggle("Только на зарядке", s.standbyOnlyCharging, sub = "Бережёт батарею: слушает, когда телефон заряжается.") {
                     s = s.copy(standbyOnlyCharging = it)
@@ -288,6 +316,28 @@ fun SettingsScreen(
                     style = TextStyles.BodySmall.copy(color = Smoke),
                 )
             }
+        }
+
+        // ── Точные напоминания (Android 12+): без разрешения напоминания могут опаздывать
+        val ctxA = androidx.compose.ui.platform.LocalContext.current
+        val exactOk = remember(saved) {
+            android.os.Build.VERSION.SDK_INT < 31 ||
+                (ctxA.getSystemService(android.app.AlarmManager::class.java)?.canScheduleExactAlarms() ?: true)
+        }
+        if (!exactOk) {
+            Spacer(Modifier.height(20.dp))
+            MonoLabel("Напоминания", color = Bone)
+            Spacer(Modifier.height(6.dp))
+            Text("Разрешите точные напоминания — иначе телефон может присылать их с опозданием.", style = TextStyles.BodySmall)
+            Spacer(Modifier.height(8.dp))
+            Pill("Разрешить точные напоминания", accent = true, modifier = Modifier.fillMaxWidth(), onClick = {
+                runCatching {
+                    ctxA.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, android.net.Uri.parse("package:" + ctxA.packageName))
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            })
         }
 
         // ── Умный дом
@@ -353,7 +403,14 @@ fun SettingsScreen(
         Spacer(Modifier.height(10.dp))
         Field(label = "API Key", value = s.binanceKey, onChange = { s = s.copy(binanceKey = it) }, secret = true)
         Field(label = "Secret Key", value = s.binanceSecret, onChange = { s = s.copy(binanceSecret = it) }, secret = true)
-        Toggle(
+        if (com.archangel.ai.BuildConfig.PLAY_STORE) {
+            Text(
+                "Демо-счёт (Binance Demo Trading). В версии из Google Play доступны только демо-счёт и песочница — деньги ненастоящие. " +
+                    "Ключ: Binance → Demo Trading → API Key Management.",
+                style = TextStyles.BodySmall,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+        } else Toggle(
             "Демо-счёт (Binance Demo Trading)",
             s.binanceTestnet,
             sub = if (s.binanceTestnet) "Ключ: Binance → Demo Trading → API Key Management. Деньги ненастоящие"

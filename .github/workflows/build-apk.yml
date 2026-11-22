@@ -25,7 +25,20 @@ jobs:
         run: |
           chmod +x gradlew
           set -o pipefail
-          ./gradlew testDebugUnitTest assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+          # Ключ загрузки Google Play — из секретов (если добавлены)
+          if [ -n "$UPLOAD_KEYSTORE_B64" ]; then
+            echo "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export UPLOAD_KEYSTORE_PATH="$RUNNER_TEMP/upload.jks"
+            TASKS="testFullDebugUnitTest assembleFullRelease bundlePlayRelease"
+          else
+            TASKS="testFullDebugUnitTest assembleFullRelease"
+          fi
+          ./gradlew $TASKS --no-daemon --stacktrace 2>&1 | tee build.log
+        env:
+          UPLOAD_KEYSTORE_B64: ${{ secrets.UPLOAD_KEYSTORE_B64 }}
+          UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
 
       # Ошибки компиляции публикуются как аннотации — их видно на странице запуска.
       - name: Report build errors
@@ -52,12 +65,18 @@ jobs:
             echo "IS_MAIN=false" >> $GITHUB_ENV
           fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          cp app/build/outputs/apk/release/app-release.apk "$NAME"
+          cp app/build/outputs/apk/full/release/app-full-release.apk "$NAME"
+          # Пакет для Google Play (.aab), если собран
+          if [ -f app/build/outputs/bundle/playRelease/app-play-release.aab ]; then
+            cp app/build/outputs/bundle/playRelease/app-play-release.aab "ARCHANGEL_AI-$VERSION-google-play.aab"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
           name: ARCHANGEL_AI-apk
-          path: ARCHANGEL_AI-*.apk
+          path: |
+            ARCHANGEL_AI-*.apk
+            ARCHANGEL_AI-*.aab
 
       # Каждая успешная сборка выкладывается в Releases: оттуда APK удобно скачать с телефона.
       - name: Publish release
@@ -67,6 +86,8 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ env.TITLE }}
           body: "Список изменений — в CHANGELOG.md (для предложений — в PROPOSALS.md ветки). Установите APK на телефон."
-          files: ARCHANGEL_AI-*.apk
+          files: |
+            ARCHANGEL_AI-*.apk
+            ARCHANGEL_AI-*.aab
           prerelease: ${{ env.IS_MAIN != 'true' }}
           make_latest: ${{ env.IS_MAIN == 'true' }}

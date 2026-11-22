@@ -6,14 +6,15 @@ plugins {
 
 android {
     namespace = "com.archangel.ai"
-    compileSdk = 35
+    // Google Play с 31.08.2026 принимает только приложения для Android 16 (API 36)
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.archangel.ai"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 31
-        versionName = "0.20.0"
+        targetSdk = 36
+        versionCode = 32
+        versionName = "0.21.0"
         // Офлайн-слух (Vosk) — нативная библиотека; только архитектуры телефонов, чтобы APK был меньше
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
@@ -27,6 +28,33 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Ключ загрузки для Google Play — только из секретов CI, в репозитории его нет
+        val uploadStore = System.getenv("UPLOAD_KEYSTORE_PATH")
+        if (!uploadStore.isNullOrBlank() && file(uploadStore).exists()) {
+            create("upload") {
+                storeFile = file(uploadStore)
+                storePassword = System.getenv("UPLOAD_STORE_PASSWORD")
+                keyAlias = System.getenv("UPLOAD_KEY_ALIAS") ?: "upload"
+                keyPassword = System.getenv("UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+
+    // Две версии: full — APK для сайта, GitHub и других магазинов (всё включено);
+    // play — для Google Play: без торговли на реальные деньги и без особых разрешений.
+    flavorDimensions += "store"
+    productFlavors {
+        create("full") {
+            dimension = "store"
+            buildConfigField("boolean", "PLAY_STORE", "false")
+            // Тот же ключ, что у прежних версий, — обновление ставится поверх
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("play") {
+            dimension = "store"
+            buildConfigField("boolean", "PLAY_STORE", "true")
+            signingConfig = signingConfigs.findByName("upload") ?: signingConfigs.getByName("debug")
+        }
     }
 
     buildTypes {
@@ -38,7 +66,7 @@ android {
         release {
             isMinifyEnabled = false
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("debug")
+            // Подпись задаётся в версиях (flavors): full — прежний ключ, play — ключ загрузки Google Play
         }
     }
 

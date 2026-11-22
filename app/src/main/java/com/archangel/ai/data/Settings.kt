@@ -218,6 +218,9 @@ class SettingsStore(context: Context) {
 
     fun save(s: AppSettings) {
         val clean = s.copy(
+            // Версия для Google Play: только демо-счета, торговли на реальные деньги нет
+            binanceTestnet = s.binanceTestnet || com.archangel.ai.BuildConfig.PLAY_STORE,
+            altDemo = s.altDemo || com.archangel.ai.BuildConfig.PLAY_STORE,
             keys = s.keys.mapValues { it.value.trim() },
             elevenKey = s.elevenKey.trim(),
             elevenVoiceId = s.elevenVoiceId.trim().ifBlank { AppSettings.DEFAULT_ELEVEN_VOICE },

@@ -1314,6 +1314,10 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     /** Общая обёртка для операций с биржей: ошибки — заметкой в чат, успех — ответом. */
     private fun trade(onDone: () -> Unit, block: suspend (AppSettings) -> String) {
         val s = settings.value
+        if (com.archangel.ai.BuildConfig.PLAY_STORE && !s.tradeDemo) {
+            add(Role.NOTE, "В версии из Google Play торговля на реальные деньги недоступна — работают демо-счёт Binance и песочница.")
+            return
+        }
         core = CoreState.THINKING
         viewModelScope.launch {
             try {
