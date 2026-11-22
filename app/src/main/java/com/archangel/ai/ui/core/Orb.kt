@@ -91,7 +91,9 @@ fun Orb(
         var last = 0L
         while (true) {
             withFrameNanos { now ->
-                if (last != 0L) phase += (now - last) / 1_000_000_000f * speed
+                // Время по кругу: без этого через час-другой работы шейдеру не хватает точности
+                // и на сфере появляются квадратные «заплатки»
+                if (last != 0L) phase = (phase + (now - last) / 1_000_000_000f * speed) % 1800f
                 last = now
             }
         }
@@ -255,12 +257,13 @@ float hash1(float n) {
 }
 
 float vnoise(float2 p) {
-    float2 i = floor(p);
+    // Узлы решётки по модулю 289 — хэш всегда считается на маленьких числах (без «заплаток»)
+    float2 i = mod(floor(p), 289.0);
     float2 f = fract(p);
     float a = hash21(i);
-    float b = hash21(i + float2(1.0, 0.0));
-    float c = hash21(i + float2(0.0, 1.0));
-    float d = hash21(i + float2(1.0, 1.0));
+    float b = hash21(mod(i + float2(1.0, 0.0), 289.0));
+    float c = hash21(mod(i + float2(0.0, 1.0), 289.0));
+    float d = hash21(mod(i + float2(1.0, 1.0), 289.0));
     float2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }

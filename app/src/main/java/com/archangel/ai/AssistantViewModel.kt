@@ -331,7 +331,9 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
      * Тихий слух (Android 13+). null — телефон так не умеет, работаем по-старому.
      * Отключается сам после трёх сбоев подряд.
      */
-    private var wakeBroken = graph.getSharedPreferences("archangel_audio", android.content.Context.MODE_PRIVATE).getBoolean("wake_broken", false)
+    // Пометка «не работает» действует только для этой версии — в новой пробуем снова
+    private var wakeBroken = graph.getSharedPreferences("archangel_audio", android.content.Context.MODE_PRIVATE)
+        .getInt("wake_broken_v", -1) == com.archangel.ai.BuildConfig.VERSION_CODE
     private val wakeListener: com.archangel.ai.voice.WakeListener? by lazy {
         if (!com.archangel.ai.voice.WakeListener.supported()) null
         else com.archangel.ai.voice.WakeListener(
@@ -339,9 +341,11 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             onPhrase = { list -> if (standbyWanted()) handleWake(list.first(), list) },
             onUnsupported = {
                 wakeBroken = true
-                graph.getSharedPreferences("archangel_audio", android.content.Context.MODE_PRIVATE).edit().putBoolean("wake_broken", true).apply()
+                graph.getSharedPreferences("archangel_audio", android.content.Context.MODE_PRIVATE).edit()
+                    .putInt("wake_broken_v", com.archangel.ai.BuildConfig.VERSION_CODE).apply()
                 refreshStandby(300)
             },
+            names = { wakeNames() },
         )
     }
     private val wake get() = if (wakeBroken) null else wakeListener

@@ -96,7 +96,11 @@ class SpeechInput(
      * @param background режим ожидания имени: по возможности распознаём прямо на телефоне —
      * без интернета, быстрее и экономнее для батареи.
      */
-    fun start(background: Boolean = false) {
+    private var retried = false
+    private var retryRunnable: Runnable? = null
+
+    fun start(background: Boolean = false, isRetry: Boolean = false) {
+        if (!isRetry) retried = false
         if (!available) {
             onError("На телефоне нет службы распознавания речи. Установите приложение Google.")
             return
@@ -120,7 +124,18 @@ class SpeechInput(
                 focus.release()
                 onLevel(0f)
                 // Нет офлайн-модели для языка — переходим на обычное распознавание
-                if (onDevice && (error == 12 || error == 13 || error == SpeechRecognizer.ERROR_CLIENT)) onDeviceBroken = true
+                // Офлайн-распознаватель не справился (нет модели или «код 11» — обрыв) — дальше только онлайн
+                if (onDevice && (error == 11 || error == 12 || error == 13 || error == SpeechRecognizer.ERROR_CLIENT)) onDeviceBroken = true
+                // Обрыв или «занято» при обычном прослушивании — тихо повторяем один раз
+                if (!background && !retried && (error == 11 || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT)) {
+                    retried = true
+                    runCatching { r.destroy() }
+                    if (recognizer === r) recognizer = null
+                    val again = Runnable { start(false, isRetry = true) }
+                    retryRunnable = again
+                    mainHandler.postDelayed(again, 400)
+                    return
+                }
                 onErrorCode(error)
                 onError(describe(error))
             }
@@ -141,7 +156,10 @@ class SpeechInput(
         })
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+            // Команды Архангела — на русском; язык системы может быть другим
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, if (background) 3 else 1)
             .apply { if (background) putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true) }
@@ -157,6 +175,8 @@ class SpeechInput(
     }
 
     fun stop() {
+        retryRunnable?.let { mainHandler.removeCallbacks(it) }
+        retryRunnable = null
         isListening = false
         focus.release()
         recognizer?.let {
@@ -172,6 +192,7 @@ class SpeechInput(
         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Нет доступа к микрофону."
         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Микрофон занят. Попробуйте ещё раз."
         SpeechRecognizer.ERROR_AUDIO -> "Ошибка записи звука."
+        11 -> "Не расслышал — попробуйте ещё раз."
         12, 13 -> "Этот язык не поддерживается распознаванием."
         else -> "Распознавание прервалось (код $code)."
     }

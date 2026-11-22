@@ -35,7 +35,11 @@ class WakeListener(
     private val onPhrase: (List<String>) -> Unit,
     /** Этот способ на телефоне не работает — нужно вернуться к обычному. */
     private val onUnsupported: () -> Unit,
+    /** Имена помощника — подсказка распознавателю, чтобы лучше слышал именно их. */
+    private val names: () -> List<String> = { emptyList() },
 ) {
+    /** Сначала пробуем распознавание на телефоне, при сбоях — онлайн (Google). */
+    private var useCloud = false
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var running = false
     @Volatile private var streaming = false
@@ -96,11 +100,11 @@ class WakeListener(
                     ring.addLast(bytes)
                     if (ring.size > RING_FRAMES) ring.removeFirst()
                     if (recognizing) continue // ждём результата прошлой фразы
-                    if (rms > max(noise * 3.0, 450.0)) loud++ else {
+                    if (rms > max(noise * 2.5, 280.0)) loud++ else {
                         loud = 0
                         noise = (noise * 0.98 + rms * 0.02).coerceIn(60.0, 3000.0)
                     }
-                    if (loud >= 6) { // ~120 мс голоса
+                    if (loud >= 5) { // ~100 мс голоса
                         beginStream(ring.toList())
                         ring.clear()
                         loud = 0; quiet = 0
@@ -108,7 +112,7 @@ class WakeListener(
                     }
                 } else {
                     queue?.offer(bytes)
-                    if (rms > max(noise * 2.5, 380.0)) quiet = 0 else quiet++
+                    if (rms > max(noise * 2.0, 230.0)) quiet = 0 else quiet++
                     // Фраза закончилась: 1 секунда тишины или 8 секунд всего
                     if (quiet >= 50 || System.currentTimeMillis() - streamStart > 8_000) endStream()
                 }
@@ -168,7 +172,7 @@ class WakeListener(
         if (!running) { runCatching { read.close() }; recognizing = false; return }
         finishRecognizer()
         readSide = read
-        val onDevice = runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }.getOrDefault(false)
+        val onDevice = !useCloud && runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }.getOrDefault(false)
         val r = try {
             if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(context) else SpeechRecognizer.createSpeechRecognizer(context)
         } catch (e: Exception) {
@@ -201,7 +205,9 @@ class WakeListener(
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
+            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, onDevice)
+            .putExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(names()))
             .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, read)
             .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
             .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
@@ -222,11 +228,14 @@ class WakeListener(
         recognizing = false
     }
 
-    /** Три настоящих сбоя подряд — считаем, что телефон так не умеет. */
+    /** Два сбоя на телефоне — переходим на онлайн; ещё три — считаем, что телефон так не умеет. */
     private fun fail() {
         recognizing = false
         failures++
-        if (failures >= 3) {
+        if (!useCloud && failures >= 2) {
+            useCloud = true
+            failures = 0
+        } else if (useCloud && failures >= 3) {
             running = false
             onUnsupported()
         }
