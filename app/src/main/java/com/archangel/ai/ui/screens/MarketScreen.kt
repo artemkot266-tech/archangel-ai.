@@ -67,6 +67,7 @@ fun MarketScreen(
     vm: MarketViewModel,
     settings: AppSettings,
     onOrder: (PhoneAction.Order) -> Unit,
+    onAlertAdded: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // Автообновление котировок, пока экран открыт.
@@ -76,6 +77,8 @@ fun MarketScreen(
         }
     }
     LaunchedEffect(settings.exchangeReady, settings.binanceTestnet) { vm.loadBalances() }
+    LaunchedEffect(Unit) { vm.reloadAlerts() }
+    var alertPrice by rememberSaveable { mutableStateOf("") }
 
     var visible by rememberSaveable { mutableIntStateOf(64) }
     var amount by rememberSaveable { mutableStateOf("20") }
@@ -222,9 +225,55 @@ fun MarketScreen(
             }
         }
 
+        // ── Уведомления о цене
+        Spacer(Modifier.height(28.dp))
+        SectionHeader("03.1", "Уведомить о цене")
+        Spacer(Modifier.height(10.dp))
+        Text("Сообщу уведомлением, когда ${vm.symbol.removeSuffix("USDT")} дойдёт до цены. Голосом: «сообщи, когда биткоин будет 100 тысяч».", style = TextStyles.BodySmall)
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 52.dp)
+                    .background(Surface1, RoundedCornerShape(16.dp))
+                    .border(1.dp, Hairline, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            ) {
+                if (alertPrice.isEmpty()) Text(t?.let { "Например, ${Indicators.formatPrice(it.last * 1.05)}" } ?: "Цена", style = TextStyles.Mono.copy(color = Smoke))
+                BasicTextField(
+                    value = alertPrice,
+                    onValueChange = { v -> alertPrice = v.filter { it.isDigit() || it == '.' || it == ',' }.take(14) },
+                    textStyle = TextStyles.Mono,
+                    cursorBrush = SolidColor(Ember),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            val alertValue = alertPrice.replace(',', '.').toDoubleOrNull()
+            Pill("Добавить", enabled = alertValue != null && alertValue > 0 && t != null, onClick = {
+                alertValue?.let { vm.addAlert(it); onAlertAdded() }
+                alertPrice = ""
+            })
+        }
+        vm.alerts.forEach { a ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${a.symbol.removeSuffix("USDT")} ${if (a.above) "выше" else "ниже"} ${Indicators.formatPrice(a.price)}",
+                    style = TextStyles.Mono, modifier = Modifier.weight(1f),
+                )
+                Text("убрать", style = TextStyles.Label, color = Ash, modifier = Modifier.clickable { vm.removeAlert(a.id) }.padding(8.dp))
+            }
+        }
+        if (vm.alerts.isNotEmpty()) {
+            Text("Цена проверяется каждые 15 минут, даже когда приложение закрыто.", style = TextStyles.BodySmall.copy(color = Smoke))
+        }
+
         // ── Сделка
         Spacer(Modifier.height(28.dp))
-        SectionHeader("03.1", "Сделка")
+        SectionHeader("03.2", "Сделка")
         Spacer(Modifier.height(14.dp))
         MonoLabel("Сумма, USDT · рыночный ордер")
         Spacer(Modifier.height(8.dp))
@@ -275,8 +324,28 @@ fun MarketScreen(
 
         // ── Баланс
         Spacer(Modifier.height(28.dp))
-        SectionHeader("03.2", "Баланс", trailing = if (settings.binanceTestnet) "демо" else "live")
+        SectionHeader("03.3", "Портфель", trailing = if (settings.binanceTestnet) "демо" else "live")
         Spacer(Modifier.height(12.dp))
+        vm.portfolio?.let { p ->
+            Text(Indicators.formatPrice(p.total) + " USDT", style = TextStyles.Digits.copy(fontSize = 30.sp))
+            Text(
+                "за сутки " + (if (p.change24 >= 0) "+" else "") + String.format(Locale.US, "%.2f%%", p.change24),
+                style = TextStyles.Mono, color = if (p.change24 >= 0) Bone else Ember,
+            )
+            Spacer(Modifier.height(10.dp))
+            p.items.take(10).forEach { h ->
+                val share = if (p.total > 0) (h.value / p.total).toFloat() else 0f
+                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(h.asset, style = TextStyles.Mono, modifier = Modifier.width(64.dp))
+                    Box(Modifier.weight(1f).height(4.dp).background(Hairline, RoundedCornerShape(2.dp))) {
+                        Box(Modifier.fillMaxWidth(share.coerceIn(0.01f, 1f)).height(4.dp).background(Bone, RoundedCornerShape(2.dp)))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(Indicators.formatPrice(h.value), style = TextStyles.Mono)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
         if (vm.balanceMessage.isNotBlank()) Text(vm.balanceMessage, style = TextStyles.BodySmall)
         vm.balances.take(12).forEach { b ->
             Row(

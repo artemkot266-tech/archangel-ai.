@@ -115,6 +115,7 @@ fun CoreScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(ORB_ASPECT),
+                theme = settings.orbTheme,
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onCoreTap()

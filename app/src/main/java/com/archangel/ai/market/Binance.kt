@@ -20,6 +20,11 @@ data class Ticker(
 
 data class Balance(val asset: String, val free: Double, val locked: Double)
 
+data class Holding(val asset: String, val amount: Double, val value: Double, val change24: Double)
+
+/** Портфель в USDT: стоимость, изменение за сутки (взвешенное), позиции по убыванию стоимости. */
+data class Portfolio(val total: Double, val change24: Double, val items: List<Holding>)
+
 data class OrderResult(
     val orderId: Long,
     val status: String,
@@ -81,6 +86,20 @@ class BinanceClient {
             Balance(b.getString("asset"), b.getString("free").toDouble(), b.getString("locked").toDouble())
         }.filter { it.free + it.locked > 0 }
             .sortedByDescending { if (it.asset == "USDT") Double.MAX_VALUE else it.free + it.locked }
+    }
+
+    suspend fun portfolio(key: String, secret: String, testnet: Boolean): Portfolio {
+        val stable = setOf("USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI")
+        val items = balances(key, secret, testnet).mapNotNull { b ->
+            val amount = b.free + b.locked
+            if (b.asset in stable) Holding(b.asset, amount, amount, 0.0)
+            else runCatching { ticker(b.asset + "USDT") }.getOrNull()?.let { t ->
+                Holding(b.asset, amount, amount * t.last, t.changePct)
+            }
+        }.filter { it.value >= 0.01 }.sortedByDescending { it.value }
+        val total = items.sumOf { it.value }
+        val change = if (total > 0) items.sumOf { it.value * it.change24 } / total else 0.0
+        return Portfolio(total, change, items)
     }
 
     /** Рыночный ордер на сумму в USDT (quoteOrderQty) — не нужно считать шаг лота. */

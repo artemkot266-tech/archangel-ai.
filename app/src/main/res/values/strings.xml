@@ -4,4 +4,6 @@
     <string name="shortcut_voice">Голос</string>
     <string name="shortcut_voice_long">Говорить с Архангелом</string>
     <string name="shortcut_market">Рынок</string>
+    <string name="widget_talk">Говорить</string>
+    <string name="widget_desc">Сфера Архангела: касание — и он слушает</string>
 </resources>

@@ -39,6 +39,21 @@ sealed class PhoneAction {
     /** Напоминание: text/at = null — уточнить. at — время в миллисекундах. */
     data class Reminder(val text: String?, val at: Long?) : PhoneAction()
     object ShowReminders : PhoneAction()
+
+    /** Память: «запомни, что я работаю до шести». */
+    data class Remember(val fact: String?) : PhoneAction()
+    data class Forget(val what: String) : PhoneAction()
+    object ShowMemory : PhoneAction()
+    /** Погода: 0 — сегодня, 1 — завтра. */
+    data class Weather(val day: Int) : PhoneAction()
+    object Briefing : PhoneAction()
+    object Portfolio : PhoneAction()
+    /** Уведомить, когда цена дойдёт до уровня. price = null — спросить. */
+    data class PriceAlert(val symbol: String, val price: Double?) : PhoneAction()
+    /** Событие в календаре. */
+    data class CalendarAdd(val title: String?, val at: Long?) : PhoneAction()
+    /** «Что у меня сегодня?» */
+    object Agenda : PhoneAction()
 }
 
 enum class VolumeDir { UP, DOWN, MUTE, MAX }

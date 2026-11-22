@@ -12,6 +12,9 @@ import com.archangel.ai.market.Balance
 import com.archangel.ai.market.Candle
 import com.archangel.ai.market.Indicators
 import com.archangel.ai.market.Ticker
+import com.archangel.ai.market.Portfolio
+import com.archangel.ai.market.AlertStore
+import com.archangel.ai.market.AlertScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -45,6 +48,23 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var balanceMessage by mutableStateOf("")
         private set
+    var portfolio by mutableStateOf<Portfolio?>(null)
+        private set
+
+    private val alertStore = AlertStore(app)
+    var alerts by mutableStateOf(alertStore.all())
+        private set
+
+    fun reloadAlerts() { alerts = alertStore.all() }
+
+    fun addAlert(price: Double) {
+        val now = ticker?.last ?: return
+        alertStore.add(symbol, price, above = price > now)
+        AlertScheduler.ensure(graph)
+        reloadAlerts()
+    }
+
+    fun removeAlert(id: Long) { alertStore.remove(id); reloadAlerts() }
 
     private var loadJob: Job? = null
     private var analysisJob: Job? = null
@@ -184,6 +204,7 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 balances = graph.binance.balances(s.binanceKey, s.binanceSecret, s.binanceTestnet)
                 balanceMessage = if (balances.isEmpty()) "Баланс пуст." else ""
+                portfolio = runCatching { graph.binance.portfolio(s.binanceKey, s.binanceSecret, s.binanceTestnet) }.getOrNull()
             } catch (e: FriendlyException) {
                 balanceMessage = e.message.orEmpty()
             } catch (e: Exception) {

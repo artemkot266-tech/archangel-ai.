@@ -68,6 +68,8 @@ import com.archangel.ai.ui.screens.CoreScreen
 import com.archangel.ai.ui.screens.MarketScreen
 import com.archangel.ai.ui.screens.OnboardingScreen
 import com.archangel.ai.ui.screens.TasksScreen
+import com.archangel.ai.features.BriefingScheduler
+import com.archangel.ai.features.Weather
 import com.archangel.ai.ui.screens.SettingsScreen
 import com.archangel.ai.ui.screens.lastAssistantReply
 import com.archangel.ai.ui.theme.Ash
@@ -81,12 +83,13 @@ import com.archangel.ai.ui.theme.TextStyles
 
 /** Что открыть при запуске из ярлыка. */
 enum class LaunchAction {
-    VOICE, MARKET;
+    VOICE, MARKET, BRIEFING;
 
     companion object {
         fun from(intent: android.content.Intent?): LaunchAction? = when (intent?.action) {
             "com.archangel.ai.action.VOICE" -> VOICE
             "com.archangel.ai.action.MARKET" -> MARKET
+            "com.archangel.ai.action.BRIEFING" -> BRIEFING
             else -> null
         }
     }
@@ -128,6 +131,22 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
         }
     }
 
+    // Погода (местоположение) и планы (календарь)
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { vm.permissionResult(it) }
+    val calendarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { vm.permissionResult(it) }
+    LaunchedEffect(vm.needLocationPermission) {
+        if (vm.needLocationPermission) {
+            vm.needLocationPermission = false
+            locationLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+    }
+    LaunchedEffect(vm.needCalendarPermission) {
+        if (vm.needCalendarPermission) {
+            vm.needCalendarPermission = false
+            calendarLauncher.launch(Manifest.permission.READ_CALENDAR)
+        }
+    }
+
     // ── Команды от ассистента
     LaunchedEffect(vm.navigateTo) {
         vm.navigateTo?.let { screen = it; vm.navigateTo = null }
@@ -142,6 +161,10 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
                 if (vm.core != CoreState.LISTENING) listen()
             }
             LaunchAction.MARKET -> screen = AppScreen.MARKET
+            LaunchAction.BRIEFING -> {
+                screen = AppScreen.CORE
+                vm.briefing()
+            }
             null -> return@LaunchedEffect
         }
         onLaunchActionHandled()
@@ -225,11 +248,22 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
                         vm = market,
                         settings = settings,
                         onOrder = { vm.request(it) },
+                        onAlertAdded = { vm.needNotificationPermission = true },
                     )
                     AppScreen.SETTINGS -> SettingsScreen(
                         settings = settings,
                         voices = vm.voiceOptions,
-                        onSave = { app.settings.save(it); market.loadBalances() },
+                        memory = vm.memoryFacts,
+                        onForgetFact = { vm.forgetFact(it) },
+                        onSave = { saved ->
+                            app.settings.save(saved)
+                            market.loadBalances()
+                            if (saved.briefingEnabled) {
+                                BriefingScheduler.schedule(context, saved.briefingHour, saved.briefingMinute)
+                                vm.needNotificationPermission = true
+                                if (!Weather.hasLocationPermission(context)) vm.needLocationPermission = true
+                            } else BriefingScheduler.cancel(context)
+                        },
                         onClearHistory = { vm.clearHistory() },
                         onPreviewVoice = { vm.previewVoice(it) },
                         onTestBrain = vm::testBrain,

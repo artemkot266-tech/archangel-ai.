@@ -69,6 +69,41 @@ object CommandParser {
         Regex("^(открой|покажи)\\s+(настройки архангела|настройки приложения)$").find(s)
             ?.let { return PhoneAction.Screen(AppScreen.SETTINGS) }
 
+        // Память
+        Regex("^(что ты (обо мне|про меня) (знаешь|помнишь)|что ты помнишь)").find(s)?.let { return PhoneAction.ShowMemory }
+        Regex("^запомни\\s*[:,]?\\s*(что\\s+)?(.*)$").find(s)?.let { return PhoneAction.Remember(it.groupValues[2].trim().ifEmpty { null }) }
+        Regex("^забудь\\s*[:,]?\\s*(что\\s+|про\\s+|о\\s+)?(.+)$").find(s)?.let { return PhoneAction.Forget(it.groupValues[2].trim()) }
+
+        // Погода и брифинг
+        Regex("^(какая|какой|что с|что по|скажи|покажи|расскажи)?\\s*(будет\\s+)?(сегодня\\s+|завтра\\s+)?(погода|погоду|прогноз)").find(s)?.let {
+            return PhoneAction.Weather(if (s.contains("завтра")) 1 else 0)
+        }
+        Regex("^(брифинг|сводка|сводку|утренний брифинг|дай сводку|расскажи сводку|что нового сегодня)").find(s)?.let { return PhoneAction.Briefing }
+        Regex("^(что у меня (сегодня|на сегодня|по планам)|какие у меня планы|мои планы на сегодня|расписание на сегодня)").find(s)?.let {
+            return PhoneAction.Agenda
+        }
+
+        // Портфель и ценовые уведомления
+        Regex("^((покажи|какой|какая|что с|открой)\\s+)?(мой\\s+)?(портфель|баланс)|^сколько (у меня )?денег на бирже").find(s)?.let {
+            return PhoneAction.Portfolio
+        }
+        Regex("^(сообщи|уведоми|предупреди|скажи|напиши)\\s+(мне\\s+)?(когда|если)\\s+(\\S+)\\s+(.*)$").find(s)?.let { m ->
+            val sym = coinToSymbol(m.groupValues[4])
+            if (sym != null) {
+                val price = Regex("([0-9][0-9 ]*(?:[.,][0-9]+)?)\\s*(тысяч|тыс|к)?").find(m.groupValues[5])?.let { pm ->
+                    val base = pm.groupValues[1].replace(" ", "").replace(',', '.').toDoubleOrNull()
+                    if (base != null && pm.groupValues[2].isNotEmpty()) base * 1000 else base
+                }
+                return PhoneAction.PriceAlert(sym, price)
+            }
+        }
+
+        // Календарь: «добавь в календарь встречу завтра в 15»
+        Regex("^(добавь|создай|запиши|поставь)\\s+(в календарь|событие|встречу в календарь)\\s*[:,]?\\s*(.*)$").find(s)?.let {
+            val (at, rest) = parseWhen(it.groupValues[3], now)
+            return PhoneAction.CalendarAdd(rest.trim().ifEmpty { null }, at)
+        }
+
         // Заметки и напоминания
         Regex("^(покажи|прочитай|открой|какие)\\s+(у меня\\s+)?(мои\\s+)?заметки").find(s)?.let { return PhoneAction.ShowNotes }
         Regex("^(покажи|прочитай|открой|какие)\\s+(у меня\\s+)?(мои\\s+)?напоминания").find(s)?.let { return PhoneAction.ShowReminders }
@@ -327,6 +362,12 @@ object CommandParser {
                 str("text"),
                 str("at")?.let { runCatching { SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).parse(it)?.time }.getOrNull() },
             )
+            "calendar" -> PhoneAction.CalendarAdd(
+                str("title"),
+                str("at")?.let { runCatching { SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).parse(it)?.time }.getOrNull() },
+            )
+            "price_alert" -> PhoneAction.PriceAlert(o.getString("symbol").uppercase(), o.optDouble("price").takeIf { !it.isNaN() })
+            "remember" -> PhoneAction.Remember(str("fact"))
             else -> null
         }
     } catch (e: Exception) {
@@ -352,6 +393,9 @@ object CommandParser {
 {"type":"taxi","destination":"куда","app":"uklon|bolt|uber"}
 {"type":"note","text":"текст заметки"}
 {"type":"reminder","text":"о чём","at":"2026-01-31T09:00"}
+{"type":"calendar","title":"событие","at":"2026-01-31T15:00"}
+{"type":"price_alert","symbol":"BTCUSDT","price":100000}
+{"type":"remember","fact":"факт о пользователе — ТОЛЬКО если он сам попросил запомнить"}
 {"type":"market","symbol":"BTCUSDT"}
 {"type":"order","side":"BUY|SELL","symbol":"BTCUSDT","usdt":20}
 Если для действия не хватает данных (что искать, что включить, куда ехать, когда напомнить) — НЕ добавляй тег,

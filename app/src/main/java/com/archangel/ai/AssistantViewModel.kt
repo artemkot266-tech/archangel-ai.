@@ -25,6 +25,11 @@ import androidx.core.content.ContextCompat
 import com.archangel.ai.phone.MusicApp
 import com.archangel.ai.phone.TaxiApp
 import com.archangel.ai.tasks.TaskStore
+import com.archangel.ai.data.MemoryStore
+import com.archangel.ai.features.CalendarHelper
+import com.archangel.ai.features.Weather
+import com.archangel.ai.market.AlertScheduler
+import com.archangel.ai.market.AlertStore
 import com.archangel.ai.voice.Speaker
 import com.archangel.ai.voice.VoiceOption
 import com.archangel.ai.voice.SpeechInput
@@ -126,6 +131,10 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         object NoteText : Ask()
         data class ReminderText(val at: Long?) : Ask()
         data class ReminderTime(val text: String) : Ask()
+        object RememberText : Ask()
+        data class AlertPrice(val symbol: String) : Ask()
+        data class CalTitle(val at: Long?) : Ask()
+        data class CalTime(val title: String) : Ask()
     }
 
     private var awaiting: Ask? = null
@@ -194,6 +203,21 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 if (at == null) ask(a, "Не понял время. Скажите, например: «завтра в 9» или «через 20 минут».", viaVoice)
                 else handle(PhoneAction.Reminder(a.text, at), viaVoice)
             }
+            Ask.RememberText -> handle(PhoneAction.Remember(text.trim().ifEmpty { null }), viaVoice)
+            is Ask.AlertPrice -> {
+                val price = Regex("([0-9][0-9 ]*(?:[.,][0-9]+)?)\\s*(тысяч|тыс|к)?").find(text)?.let { pm ->
+                    val base = pm.groupValues[1].replace(" ", "").replace(',', '.').toDoubleOrNull()
+                    if (base != null && pm.groupValues[2].isNotEmpty()) base * 1000 else base
+                }
+                if (price == null) ask(a, "Назовите цену числом, например «сто тысяч» или «95000».", viaVoice)
+                else handle(PhoneAction.PriceAlert(a.symbol, price), viaVoice)
+            }
+            is Ask.CalTitle -> handle(PhoneAction.CalendarAdd(text.trim().ifEmpty { null }, a.at), viaVoice)
+            is Ask.CalTime -> {
+                val (at, _) = CommandParser.parseWhen(" $text ")
+                if (at == null) ask(a, "Не понял время. Например: «завтра в 15» или «в пятницу в 10».", viaVoice)
+                else handle(PhoneAction.CalendarAdd(a.title, at), viaVoice)
+            }
         }
         return true
     }
@@ -222,6 +246,27 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteNote(id: Long) { tasks.deleteNote(id); refreshTasks() }
+
+    // ───────────── Память ─────────────
+
+    private val memory = MemoryStore(app)
+    var memoryFacts by mutableStateOf(memory.facts())
+        private set
+
+    fun forgetFact(fact: String) { memory.remove(fact); memoryFacts = memory.facts() }
+
+    // ───────────── Разрешения, которые нужны для отдельных функций ─────────────
+
+    var needLocationPermission by mutableStateOf(false)
+    var needCalendarPermission by mutableStateOf(false)
+    private var retryAction: Pair<PhoneAction, Boolean>? = null
+
+    /** UI сообщает результат запроса разрешения — повторяем действие, ради которого просили. */
+    fun permissionResult(granted: Boolean) {
+        val r = retryAction ?: return
+        retryAction = null
+        if (granted) handle(r.first, r.second)
+    }
     fun deleteReminder(id: Long) { tasks.deleteReminder(id); refreshTasks() }
 
     init {
@@ -324,6 +369,11 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 appendLine("Пользователь зовёт тебя «${s.wakeName}» (изначальное имя — Архангел). Откликайся на оба.")
             }
             if (s.userName.isNotBlank()) appendLine("Пользователя зовут ${s.userName} — обращайся к нему так.")
+            val facts = memory.facts()
+            if (facts.isNotEmpty()) {
+                appendLine("Что пользователь сам попросил запомнить о себе:")
+                facts.forEach { appendLine("- $it") }
+            }
             appendLine("Ты работаешь в Android-приложении ARCHANGEL AI на телефоне пользователя. Сейчас: $now.")
             appendLine("Если просьба неоднозначна — задай один короткий уточняющий вопрос, а не угадывай.")
             appendLine("Не используй markdown-таблицы. Если вопрос про трейдинг — помогай по существу, но помни, что это не финансовый совет.")
@@ -471,9 +521,141 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                     viaVoice,
                 )
             }
+            is PhoneAction.Remember -> {
+                val fact = action.fact?.trim().orEmpty()
+                if (fact.isEmpty()) ask(Ask.RememberText, "Что запомнить?", viaVoice)
+                else {
+                    memory.add(fact); memoryFacts = memory.facts()
+                    reply("Запомнил: ${fact.replaceFirstChar { it.lowercaseChar() }}.", viaVoice)
+                }
+            }
+            is PhoneAction.Forget -> {
+                val n = memory.forget(action.what)
+                memoryFacts = memory.facts()
+                reply(if (n > 0) "Забыл." else "Я ничего такого не помню.", viaVoice)
+            }
+            PhoneAction.ShowMemory -> {
+                val f = memory.facts()
+                reply(
+                    if (f.isEmpty()) "Пока ничего. Скажите «запомни, что…» — и я буду это учитывать."
+                    else "Вот что я помню: " + f.joinToString("; ") + ".",
+                    viaVoice,
+                )
+            }
+            is PhoneAction.Weather -> {
+                if (!Weather.hasLocationPermission(graph)) {
+                    retryAction = action to viaVoice
+                    needLocationPermission = true
+                    reply("Чтобы сказать погоду, мне нужно примерное местоположение — разрешите доступ.", viaVoice)
+                } else background(viaVoice) { Weather.describe(Weather.fetch(graph), action.day) }
+            }
+            PhoneAction.Briefing -> background(viaVoice) { buildBriefing() }
+            PhoneAction.Agenda -> {
+                if (!CalendarHelper.canRead(graph)) {
+                    retryAction = action to viaVoice
+                    needCalendarPermission = true
+                }
+                refreshTasks()
+                val today = todayReminders()
+                val cal = if (CalendarHelper.canRead(graph)) CalendarHelper.describe(CalendarHelper.eventsForDay(graph)) + " " else ""
+                reply(cal + (if (today.isEmpty()) "Напоминаний на сегодня нет." else "Напоминания: $today."), viaVoice)
+            }
+            PhoneAction.Portfolio -> background(viaVoice) {
+                val s = settings.value
+                if (!s.exchangeReady) "Биржа не подключена — добавьте ключ Binance в настройках."
+                else {
+                    val p = graph.binance.portfolio(s.binanceKey, s.binanceSecret, s.binanceTestnet)
+                    if (p.items.isEmpty()) "На счёте пусто."
+                    else "Портфель${if (s.binanceTestnet) " на демо-счёте" else ""}: ${Indicators.formatPrice(p.total)} USDT, " +
+                        "за сутки ${if (p.change24 >= 0) "+" else ""}${String.format(Locale.US, "%.2f", p.change24)}%. " +
+                        "Крупнейшие: " + p.items.take(3).joinToString(", ") { "${it.asset} — ${Indicators.formatPrice(it.value)}" } + "."
+                }
+            }
+            is PhoneAction.PriceAlert -> {
+                val price = action.price
+                if (price == null || price <= 0) {
+                    ask(Ask.AlertPrice(action.symbol), "На какой цене ${action.symbol.removeSuffix("USDT")} сообщить?", viaVoice)
+                } else background(viaVoice) {
+                    val now = graph.binance.ticker(action.symbol).last
+                    val above = price > now
+                    AlertStore(graph).add(action.symbol, price, above)
+                    AlertScheduler.ensure(graph)
+                    needNotificationPermission = true
+                    alertsVersion++
+                    "Сообщу, когда ${action.symbol.removeSuffix("USDT")} будет ${if (above) "выше" else "ниже"} " +
+                        "${Indicators.formatPrice(price)}. Сейчас ${Indicators.formatPrice(now)}. Проверяю цену каждые 15 минут."
+                }
+            }
+            is PhoneAction.CalendarAdd -> {
+                val title = action.title?.trim().orEmpty()
+                val at = action.at
+                when {
+                    title.isEmpty() -> ask(Ask.CalTitle(at), "Как назвать событие?", viaVoice)
+                    at == null -> ask(Ask.CalTime(title), "Когда?", viaVoice)
+                    CalendarHelper.insert(graph, title, at) ->
+                        reply("Открываю календарь: «$title», ${CommandParser.describeTime(at)}. Нажмите «Сохранить».", viaVoice)
+                    else -> reply("Не нашёл приложение календаря.", viaVoice)
+                }
+            }
             else -> reply(graph.phone.execute(action), viaVoice)
         }
     }
+
+    /** Меняется, когда добавлено ценовое уведомление — «Рынок» перечитывает список. */
+    var alertsVersion by mutableStateOf(0)
+        private set
+
+    /** Долгая операция с сетью: ядро «думает», результат — в чат и голосом. */
+    private fun background(viaVoice: Boolean, block: suspend () -> String) {
+        core = CoreState.THINKING
+        viewModelScope.launch {
+            try {
+                reply(block(), viaVoice)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: FriendlyException) {
+                add(Role.NOTE, e.message.orEmpty()); core = CoreState.IDLE
+            } catch (e: Exception) {
+                add(Role.NOTE, "Не получилось: ${e.javaClass.simpleName}"); core = CoreState.IDLE
+            }
+        }
+    }
+
+    private fun todayReminders(): String {
+        val end = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 23); set(java.util.Calendar.MINUTE, 59)
+        }.timeInMillis
+        return reminders.filter { it.at <= end }.joinToString("; ") {
+            SimpleDateFormat("HH:mm", Locale.US).format(Date(it.at)) + " — " + it.text
+        }
+    }
+
+    /** Утренний брифинг: погода, планы, рынок. Работает без ИИ-ключа. */
+    private suspend fun buildBriefing(): String {
+        val s = settings.value
+        val parts = ArrayList<String>()
+        val name = if (s.userName.isNotBlank()) ", ${s.userName}" else ""
+        parts += "${Greetings.forNow()}$name. Сегодня " + SimpleDateFormat("EEEE, d MMMM", Locale("ru")).format(Date()) + "."
+        if (Weather.hasLocationPermission(graph)) {
+            runCatching { Weather.describe(Weather.fetch(graph), 0) }.getOrNull()?.let { parts += it }
+        }
+        if (CalendarHelper.canRead(graph)) parts += CalendarHelper.describe(CalendarHelper.eventsForDay(graph))
+        refreshTasks()
+        todayReminders().takeIf { it.isNotEmpty() }?.let { parts += "Напоминания: $it." }
+        val coins = listOf("BTCUSDT" to "Биткоин", "ETHUSDT" to "эфир")
+        val market = coins.mapNotNull { (sym, title) ->
+            runCatching { graph.binance.ticker(sym) }.getOrNull()?.let {
+                "$title ${Indicators.formatPrice(it.last)}, ${if (it.changePct >= 0) "плюс" else "минус"} " +
+                    String.format(Locale.US, "%.1f", kotlin.math.abs(it.changePct)) + "% за сутки"
+            }
+        }
+        if (market.isNotEmpty()) parts += "Рынок: " + market.joinToString("; ") + "."
+        parts += "Хорошего дня."
+        return parts.joinToString(" ")
+    }
+
+    /** Запуск брифинга из уведомления. */
+    fun briefing() = handle(PhoneAction.Briefing, viaVoice = true)
 
     private fun handleMusic(action: PhoneAction.Music, viaVoice: Boolean) {
         val installed = graph.phone.installedMusicApps()

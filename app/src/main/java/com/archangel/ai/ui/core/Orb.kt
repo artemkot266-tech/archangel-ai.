@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.archangel.ai.CrashGuard
 import com.archangel.ai.core.CoreState
+import com.archangel.ai.data.OrbTheme
 import com.archangel.ai.ui.theme.Bone
 import com.archangel.ai.ui.theme.Ember
 import com.archangel.ai.ui.theme.EmberGlow
@@ -44,8 +45,8 @@ import kotlin.math.sqrt
 /** Визуальные параметры сферы для каждого состояния. */
 private data class OrbLook(val core: Color, val rim: Color, val energy: Float, val swirl: Float)
 
-private fun lookFor(state: CoreState) = when (state) {
-    CoreState.IDLE -> OrbLook(Platinum, Bone, 0.12f, 0.10f)
+private fun lookFor(state: CoreState, theme: OrbTheme) = when (state) {
+    CoreState.IDLE -> OrbLook(Color(theme.core), Color(theme.rim), 0.12f, 0.10f)
     CoreState.LISTENING -> OrbLook(Ember, EmberGlow, 0.55f, 0.35f)
     CoreState.THINKING -> OrbLook(Steel, Frost, 0.40f, 1.00f)
     CoreState.SPEAKING -> OrbLook(Color(0xFFFF7A3D), Color(0xFFFFE0C7), 0.50f, 0.45f)
@@ -66,9 +67,10 @@ fun Orb(
     state: CoreState,
     level: Float,
     modifier: Modifier = Modifier,
+    theme: OrbTheme = OrbTheme.PLATINUM,
     onClick: (() -> Unit)? = null,
 ) {
-    val look = lookFor(state)
+    val look = lookFor(state, theme)
     val core by animateColorAsState(look.core, tween(700), label = "core")
     val rim by animateColorAsState(look.rim, tween(700), label = "rim")
     val energy by animateFloatAsState(look.energy, tween(700), label = "energy")

@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import com.archangel.ai.BuildConfig
 import com.archangel.ai.data.AppSettings
 import com.archangel.ai.data.Brain
+import com.archangel.ai.data.OrbTheme
+import androidx.compose.foundation.clickable
 import com.archangel.ai.voice.VoiceOption
 import androidx.compose.ui.platform.LocalUriHandler
 import com.archangel.ai.ui.components.MonoLabel
@@ -69,6 +71,8 @@ import java.util.Locale
 fun SettingsScreen(
     settings: AppSettings,
     voices: List<VoiceOption>,
+    memory: List<String>,
+    onForgetFact: (String) -> Unit,
     onSave: (AppSettings) -> Unit,
     onClearHistory: () -> Unit,
     onPreviewVoice: (AppSettings) -> Unit,
@@ -182,6 +186,44 @@ fun SettingsScreen(
             ),
         )
 
+        // ── Сфера
+        Spacer(Modifier.height(20.dp))
+        MonoLabel("Сфера", color = Bone)
+        Spacer(Modifier.height(10.dp))
+        ChipFlow(OrbTheme.entries.map { it.title }, s.orbTheme.title) { t ->
+            s = s.copy(orbTheme = OrbTheme.entries.first { it.title == t })
+        }
+        Text("Материал сферы в покое. Во время работы цвет показывает состояние.", style = TextStyles.BodySmall, modifier = Modifier.padding(top = 8.dp))
+
+        // ── Утренний брифинг
+        Spacer(Modifier.height(20.dp))
+        MonoLabel("Утренний брифинг", color = Bone)
+        Spacer(Modifier.height(6.dp))
+        Toggle(
+            "Каждое утро",
+            s.briefingEnabled,
+            sub = "Погода, планы, напоминания и рынок — уведомлением в выбранное время. Голосом: «брифинг».",
+        ) { s = s.copy(briefingEnabled = it) }
+        if (s.briefingEnabled) {
+            Spacer(Modifier.height(6.dp))
+            ChipFlow((5..11).map { "$it:00" } + listOf("7:30", "8:30"), "${s.briefingHour}:${"%02d".format(s.briefingMinute)}") { t ->
+                val (h, m) = t.split(":").map { it.toInt() }
+                s = s.copy(briefingHour = h, briefingMinute = m)
+            }
+        }
+
+        // ── Память
+        Spacer(Modifier.height(20.dp))
+        MonoLabel("Память", color = Bone)
+        Spacer(Modifier.height(6.dp))
+        Text("Скажите «запомни, что…» — и я буду это учитывать. «Что ты обо мне знаешь?» — перечислю.", style = TextStyles.BodySmall)
+        memory.forEach { f ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(f, style = TextStyles.Body, modifier = Modifier.weight(1f))
+                Text("забыть", style = TextStyles.Label, color = Ash, modifier = Modifier.clickable { onForgetFact(f) }.padding(8.dp))
+            }
+        }
+
         // ── Биржа
         Spacer(Modifier.height(20.dp))
         MonoLabel("Биржа · Binance", color = Bone)
@@ -230,6 +272,17 @@ fun SettingsScreen(
             MonoLabel("v${BuildConfig.VERSION_NAME}", color = Smoke)
         }
         Spacer(Modifier.height(32.dp))
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ChipFlow(options: List<String>, selected: String, onSelect: (String) -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { o -> com.archangel.ai.ui.components.Chip(o, onClick = { onSelect(o) }, selected = o == selected) }
     }
 }
 

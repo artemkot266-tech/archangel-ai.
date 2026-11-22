@@ -104,4 +104,23 @@ class CommandParserTest {
     @Test fun reminderAsks() = assertEquals(PhoneAction.Reminder(null, null), p("напомни"))
     @Test fun answerCleanup() = assertEquals("гайд по доте 2", CommandParser.cleanAnswer("Включи гайд по доте 2"))
     @Test fun anything() = assertTrue(CommandParser.isAnything("да что угодно"))
+
+    // ───── v0.11: память, погода, брифинг, портфель, цены, календарь
+    @Test fun remember() = assertEquals(PhoneAction.Remember("я работаю до шести"), p("Запомни, что я работаю до шести"))
+    @Test fun showMemory() = assertEquals(PhoneAction.ShowMemory, p("что ты обо мне знаешь"))
+    @Test fun weatherToday() = assertEquals(PhoneAction.Weather(0), p("какая погода"))
+    @Test fun weatherTomorrow() = assertEquals(PhoneAction.Weather(1), p("какая завтра погода"))
+    @Test fun reminderAboutWeatherIsReminder() =
+        assertTrue(p("напомни завтра в 8 посмотреть погоду") is PhoneAction.Reminder)
+    @Test fun briefing() = assertEquals(PhoneAction.Briefing, p("брифинг"))
+    @Test fun portfolio() = assertEquals(PhoneAction.Portfolio, p("покажи мой портфель"))
+    @Test fun priceAlert() = assertEquals(PhoneAction.PriceAlert("BTCUSDT", 100000.0), p("сообщи когда биткоин будет 100 тысяч"))
+    @Test fun priceAlertAsks() = assertEquals(PhoneAction.PriceAlert("ETHUSDT", null), p("предупреди если эфир упадёт"))
+    @Test fun agenda() = assertEquals(PhoneAction.Agenda, p("что у меня сегодня"))
+    @Test fun calendar() {
+        val a = CommandParser.parse("добавь в календарь встречу с Олегом завтра в 15", now = now()) as PhoneAction.CalendarAdd
+        assertEquals("встречу с олегом", a.title)
+        val c = Calendar.getInstance().apply { timeInMillis = a.at!! }
+        assertEquals(15, c.get(Calendar.HOUR_OF_DAY))
+    }
 }

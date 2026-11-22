@@ -40,6 +40,16 @@ enum class Brain(
     ),
 }
 
+/** Материал сферы в покое (во время работы цвет показывает состояние). */
+enum class OrbTheme(val title: String, val core: Long, val rim: Long) {
+    PLATINUM("Платина", 0xFFD4D4D8, 0xFFF4F4F5),
+    GOLD("Жидкое золото", 0xFFE8B04A, 0xFFFFE3A3),
+    MERCURY("Ртуть", 0xFF9AA3AD, 0xFFE9EEF3),
+    LAVA("Лава", 0xFFFF4A1C, 0xFFFF9A5A),
+    EMERALD("Изумруд", 0xFF2FD39A, 0xFFB9F5DC),
+    AMETHYST("Аметист", 0xFF9B7BFF, 0xFFDCCFFF),
+}
+
 /** Чем озвучивать ответы. */
 enum class VoiceEngine(val title: String) {
     SYSTEM("Системный · бесплатно"),
@@ -70,6 +80,11 @@ data class AppSettings(
     val taxiApp: String = "",
     val onboardingDone: Boolean = false,
     val greetOnLaunch: Boolean = true,
+    // Внешний вид и брифинг
+    val orbTheme: OrbTheme = OrbTheme.PLATINUM,
+    val briefingEnabled: Boolean = false,
+    val briefingHour: Int = 8,
+    val briefingMinute: Int = 0,
     // Биржа
     val binanceKey: String = "",
     val binanceSecret: String = "",
@@ -124,6 +139,10 @@ class SettingsStore(context: Context) {
             taxiApp = prefs.getString("taxi_app", "") ?: "",
             onboardingDone = prefs.getBoolean("onboarding_done", false),
             greetOnLaunch = prefs.getBoolean("greet", true),
+            orbTheme = runCatching { OrbTheme.valueOf(prefs.getString("orb_theme", null) ?: "") }.getOrDefault(OrbTheme.PLATINUM),
+            briefingEnabled = prefs.getBoolean("briefing", false),
+            briefingHour = prefs.getInt("briefing_hour", 8),
+            briefingMinute = prefs.getInt("briefing_minute", 0),
             binanceKey = SecretBox.decrypt(prefs.getString("bn_key", "") ?: ""),
             binanceSecret = SecretBox.decrypt(prefs.getString("bn_secret", "") ?: ""),
             binanceTestnet = prefs.getBoolean("bn_testnet", true),
@@ -162,10 +181,14 @@ class SettingsStore(context: Context) {
             putString("taxi_app", clean.taxiApp)
             putBoolean("onboarding_done", clean.onboardingDone)
             putBoolean("greet", clean.greetOnLaunch)
+            putString("orb_theme", clean.orbTheme.name)
+            putBoolean("briefing", clean.briefingEnabled)
+            putInt("briefing_hour", clean.briefingHour)
+            putInt("briefing_minute", clean.briefingMinute)
             putString("bn_key", SecretBox.encrypt(clean.binanceKey))
             putString("bn_secret", SecretBox.encrypt(clean.binanceSecret))
             putBoolean("bn_testnet", clean.binanceTestnet)
-        }.apply()
+        }.commit() // синхронно: фоновые приёмники (брифинг) читают эти же настройки
         _settings.value = clean
     }
 
