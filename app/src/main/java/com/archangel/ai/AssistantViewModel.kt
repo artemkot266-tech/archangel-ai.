@@ -299,7 +299,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         val s = settings.value
         val where = foreground || (backgroundActive && s.standbyBackground && (!s.standbyOnlyCharging || charging()))
         return s.standby && s.onboardingDone && where && core == CoreState.IDLE &&
-            pending == null && awaiting == null && micGranted() && !mediaPlaying
+            pending == null && awaiting == null && micGranted()
     }
 
     /**
@@ -328,20 +328,16 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         standbyJob = viewModelScope.launch {
             kotlinx.coroutines.delay(delayMs)
             if (standbyWanted()) {
-                val w = wake
-                if (w != null) {
-                    // Тихий режим: один непрерывный микрофон, без сигналов и мигания значка
-                    if (!w.active) w.start()
-                } else if (!speech.isListening) {
-                    passive = true
-                    speech.holdQuiet(true)
-                    speech.start(background = true)
+                // Только офлайн-слух: без системного распознавателя — без сигналов, уведомлений и пауз видео.
+                // Пока модель не скачана, режим ожидания не работает (подсказка — в настройках).
+                if (offline.state() == com.archangel.ai.voice.OfflineWake.State.READY) {
+                    if (!offline.active) offline.start(wakeNames())
                 }
             } else {
-                wake?.stop()
-                speech.holdQuiet(false)
+                offline.stop()
                 if (passive) {
                     passive = false
+                    speech.holdQuiet(false)
                     speech.stop()
                 }
             }
@@ -370,6 +366,40 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
     private val wake get() = if (wakeBroken) null else wakeListener
+
+    // ───────────── Офлайн-слух (Vosk) ─────────────
+
+    private val offline = com.archangel.ai.voice.OfflineWake(graph, onWake = { onOfflineWake() })
+    var offlineState by mutableStateOf(offline.state())
+        private set
+    var offlineProgress by mutableStateOf(0f)
+        private set
+
+    fun downloadOffline() {
+        if (offlineState == com.archangel.ai.voice.OfflineWake.State.DOWNLOADING) return
+        offlineState = com.archangel.ai.voice.OfflineWake.State.DOWNLOADING
+        offlineProgress = 0f
+        viewModelScope.launch {
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                offline.download { p -> viewModelScope.launch { offlineProgress = p } }
+            }
+            offlineState = if (ok) com.archangel.ai.voice.OfflineWake.State.READY else com.archangel.ai.voice.OfflineWake.State.FAILED
+            if (ok) refreshStandby(300)
+        }
+    }
+
+    fun deleteOffline() {
+        offline.delete()
+        offlineState = offline.state()
+    }
+
+    /** Офлайн-слух услышал имя: короткая вибрация и сразу слушаем команду. */
+    private fun onOfflineWake() {
+        if (!standbyWanted()) return
+        wakeBuzz()
+        // Офлайн-слух только что отпустил микрофон — даём ему мгновение
+        startListening(delayMs = 350)
+    }
 
     private fun handleWake(text: String, alternatives: List<String> = speech.lastAlternatives) {
         // Имя могло оказаться только в одном из вариантов распознавания
@@ -466,7 +496,6 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         graph.phone.isForeground = { foreground }
-        watchMedia()
         viewModelScope.launch {
             androidx.compose.runtime.snapshotFlow { listOf(core, foreground, pending, backgroundActive) }.collect { refreshStandby() }
         }
@@ -495,8 +524,9 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun startListening() {
-        val wasWaking = wake?.active == true
+    fun startListening(delayMs: Long = 0) {
+        val wasWaking = wake?.active == true || offline.active || delayMs > 0
+        offline.stop()
         wake?.stop()
         passive = false
         speech.holdQuiet(false)
@@ -505,7 +535,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         partial = ""
         core = CoreState.LISTENING
         // Тихий слух только что отпустил микрофон — даём ему мгновение освободиться
-        if (wasWaking) viewModelScope.launch { kotlinx.coroutines.delay(250); if (core == CoreState.LISTENING) speech.start() }
+        if (wasWaking) viewModelScope.launch { kotlinx.coroutines.delay(maxOf(delayMs, 250)); if (core == CoreState.LISTENING) speech.start() }
         else speech.start()
     }
 
@@ -1290,6 +1320,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         standbyJob?.cancel()
+        offline.stop()
         wakeListener?.stop()
         speech.holdQuiet(false)
         speech.stop()

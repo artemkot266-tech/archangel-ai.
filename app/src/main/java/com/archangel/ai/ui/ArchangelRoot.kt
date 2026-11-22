@@ -87,7 +87,7 @@ enum class LaunchAction {
 
     companion object {
         fun from(intent: android.content.Intent?): LaunchAction? = when (intent?.action) {
-            "com.archangel.ai.action.VOICE" -> VOICE
+            "com.archangel.ai.action.VOICE", android.content.Intent.ACTION_ASSIST -> VOICE
             "com.archangel.ai.action.MARKET" -> MARKET
             "com.archangel.ai.action.BRIEFING" -> BRIEFING
             com.archangel.ai.market.DcaScheduler.ACTION -> {
@@ -179,9 +179,11 @@ fun ArchangelRoot(
     }
 
     // Режим «умной колонки»: служба запускается, пока приложение открыто (так требует Android для микрофона)
-    LaunchedEffect(settings.standby, settings.standbyBackground, settings.onboardingDone) {
+    LaunchedEffect(settings.standby, settings.standbyBackground, settings.onboardingDone, vm.offlineState) {
         val mic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        if (settings.standby && settings.standbyBackground && settings.onboardingDone && mic) {
+        // Фоновая служба нужна только когда офлайн-слух готов — иначе незачем держать уведомление
+        val ready = vm.offlineState == com.archangel.ai.voice.OfflineWake.State.READY
+        if (settings.standby && settings.standbyBackground && settings.onboardingDone && mic && ready) {
             com.archangel.ai.features.ListeningService.start(context)
             vm.needNotificationPermission = true
         } else com.archangel.ai.features.ListeningService.stop(context)
@@ -350,6 +352,10 @@ fun ArchangelRoot(
                         onPreviewVoice = { vm.previewVoice(it) },
                         onTestBrain = vm::testBrain,
                         onRestartOnboarding = { app.settings.update { it.copy(onboardingDone = false) } },
+                        offlineState = vm.offlineState,
+                        offlineProgress = vm.offlineProgress,
+                        onDownloadOffline = { vm.downloadOffline() },
+                        onDeleteOffline = { vm.deleteOffline() },
                     )
                 }
             }

@@ -55,4 +55,11 @@ object BackgroundHelp {
             open(context, editor)
         if (!ok) appDetails(context)
     }
+
+    /** Экран выбора цифрового помощника — чтобы вызывать Архангела долгим нажатием кнопки питания. */
+    fun defaultAssistant(context: Context) {
+        val ok = open(context, Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS)) ||
+            open(context, Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+        if (!ok) open(context, Intent(android.provider.Settings.ACTION_SETTINGS))
+    }
 }

@@ -12,8 +12,10 @@ android {
         applicationId = "com.archangel.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 27
-        versionName = "0.18.4"
+        versionCode = 28
+        versionName = "0.19.0"
+        // Офлайн-слух (Vosk) — нативная библиотека; только архитектуры телефонов, чтобы APK был меньше
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     // Постоянный debug-ключ в репозитории: каждая новая сборка ставится
@@ -73,6 +75,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    // Офлайн-слух: ждёт имя помощника без системного распознавателя (версии с поддержкой 16 КБ страниц)
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation("com.alphacephei:vosk-android:0.3.75@aar")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

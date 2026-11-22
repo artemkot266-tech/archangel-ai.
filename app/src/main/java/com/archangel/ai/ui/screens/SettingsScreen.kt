@@ -53,6 +53,7 @@ import androidx.compose.foundation.clickable
 import com.archangel.ai.voice.VoiceOption
 import androidx.compose.ui.platform.LocalUriHandler
 import com.archangel.ai.ui.components.MonoLabel
+import com.archangel.ai.ui.components.Panel
 import com.archangel.ai.ui.components.Pill
 import com.archangel.ai.ui.components.SectionHeader
 import com.archangel.ai.ui.theme.Ash
@@ -78,6 +79,10 @@ fun SettingsScreen(
     onPreviewVoice: (AppSettings) -> Unit,
     onTestBrain: (AppSettings, (Boolean, String) -> Unit) -> Unit,
     onRestartOnboarding: () -> Unit,
+    offlineState: com.archangel.ai.voice.OfflineWake.State = com.archangel.ai.voice.OfflineWake.State.MISSING,
+    offlineProgress: Float = 0f,
+    onDownloadOffline: () -> Unit = {},
+    onDeleteOffline: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val uri = LocalUriHandler.current
@@ -193,10 +198,49 @@ fun SettingsScreen(
         Toggle(
             "Отклик на имя без касания",
             s.standby,
-            sub = "Пока Архангел открыт на экране, он слушает и откликается на «${s.wakeName.ifBlank { "Архангел" }}». " +
-                "Расходует больше батареи; телефон может коротко пикать при перезапуске микрофона.",
+            sub = "Архангел ждёт слово «${s.wakeName.ifBlank { "Архангел" }}» с помощью офлайн-слуха прямо в телефоне — " +
+                "без сигналов, всплывающих уведомлений и пауз видео. Скажите имя, почувствуйте вибрацию — и говорите команду.",
         ) { s = s.copy(standby = it) }
         if (s.standby) {
+            val ctxO = androidx.compose.ui.platform.LocalContext.current
+            Panel(Modifier.fillMaxWidth()) {
+                Column {
+                    MonoLabel("Офлайн-слух", color = Smoke)
+                    Spacer(Modifier.height(4.dp))
+                    when (offlineState) {
+                        com.archangel.ai.voice.OfflineWake.State.READY -> {
+                            Text("Готов. Работает без интернета.", style = TextStyles.Body)
+                            Spacer(Modifier.height(6.dp))
+                            Text("удалить модель", style = TextStyles.Label, color = Ash, modifier = Modifier.clickable { onDeleteOffline() }.padding(vertical = 6.dp))
+                        }
+                        com.archangel.ai.voice.OfflineWake.State.DOWNLOADING -> {
+                            Text("Скачиваю русскую модель… ${(offlineProgress * 100).toInt()}%", style = TextStyles.Body)
+                            Spacer(Modifier.height(8.dp))
+                            Box(Modifier.fillMaxWidth().height(4.dp).background(Hairline, RoundedCornerShape(2.dp))) {
+                                Box(Modifier.fillMaxWidth(offlineProgress.coerceIn(0.02f, 1f)).height(4.dp).background(Ember, RoundedCornerShape(2.dp)))
+                            }
+                        }
+                        else -> {
+                            Text(
+                                (if (offlineState == com.archangel.ai.voice.OfflineWake.State.FAILED) "Не удалось скачать — проверьте интернет. " else "") +
+                                    "Нужно один раз скачать русскую модель (~${com.archangel.ai.voice.OfflineWake.MODEL_SIZE_MB} МБ, лучше по Wi-Fi). " +
+                                    "Без неё режим ожидания выключен.",
+                                style = TextStyles.BodySmall,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Pill("Скачать офлайн-слух", onClick = onDownloadOffline, accent = true, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Ещё можно вызывать Архангела долгим нажатием кнопки питания: назначьте его цифровым помощником.",
+                style = TextStyles.BodySmall,
+            )
+            Spacer(Modifier.height(6.dp))
+            Pill("Назначить помощником по умолчанию", onClick = { com.archangel.ai.features.BackgroundHelp.defaultAssistant(ctxO) }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
             Toggle(
                 "Слушать в фоне — как умная колонка",
                 s.standbyBackground,
