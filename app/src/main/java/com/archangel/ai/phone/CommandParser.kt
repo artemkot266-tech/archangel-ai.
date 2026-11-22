@@ -73,7 +73,7 @@ object CommandParser {
         val hasUrl = Regex("(https?://|www\\.)\\S+").containsMatchIn(s)
         val guardWords = Regex("(ссылк|сайт|сообщени|смс|номер|развод|мошен|безопасн)").containsMatchIn(s)
         if ((s.startsWith("провер") && (hasUrl || guardWords)) || s.startsWith("это развод") || s.startsWith("это мошен")) {
-            val rest = Regex("(?i)^\\s*([\\p{L}]+[,!]\\s+)?(проверь|проверить|провери)?\\s*(ссылку|сайт|сообщение|смс|это|номер)?\\s*[:,]?\\s*")
+            val rest = Regex("(?iu)^\\s*([\\p{L}]+[,!]\\s+)?(проверь|проверить|провери)?\\s*(ссылку|сайт|сообщение|смс|это|номер)?\\s*[:,]?\\s*")
                 .replace(raw.trim(), "")
             return PhoneAction.GuardCheck(rest.trim().ifEmpty { null })
         }
