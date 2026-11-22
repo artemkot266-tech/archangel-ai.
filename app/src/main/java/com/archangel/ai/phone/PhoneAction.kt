@@ -48,6 +48,10 @@ sealed class PhoneAction {
     data class Weather(val day: Int) : PhoneAction()
     object Briefing : PhoneAction()
     object Portfolio : PhoneAction()
+    /** «Что с рынком?» — голосовая сводка по монетам, индексу страха и портфелю. */
+    object MarketSummary : PhoneAction()
+    /** Урок из раздела «Обучение». id = null — открыть список уроков. */
+    data class Lesson(val id: String?) : PhoneAction()
     /** Уведомить, когда цена дойдёт до уровня. price = null — спросить. */
     data class PriceAlert(val symbol: String, val price: Double?) : PhoneAction()
     /** Событие в календаре. */

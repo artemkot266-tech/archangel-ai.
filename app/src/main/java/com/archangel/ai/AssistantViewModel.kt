@@ -86,6 +86,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     var navigateTo by mutableStateOf<AppScreen?>(null)
     /** Монета, которую попросили показать голосом. */
     var marketRequest by mutableStateOf<String?>(null)
+    /** Урок, который попросили открыть голосом ("" — список уроков). */
+    var lessonRequest by mutableStateOf<String?>(null)
 
     private var nextId = 0L
     private var job: Job? = null
@@ -715,6 +717,22 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 val today = todayReminders()
                 val cal = if (CalendarHelper.canRead(graph)) CalendarHelper.describe(CalendarHelper.eventsForDay(graph)) + " " else ""
                 reply(cal + (if (today.isEmpty()) "Напоминаний на сегодня нет." else "Напоминания: $today."), viaVoice)
+            }
+            PhoneAction.MarketSummary -> background(viaVoice) {
+                val s = settings.value
+                val symbols = (s.watchlist.ifEmpty { com.archangel.ai.data.AppSettings.DEFAULT_WATCHLIST }).take(5)
+                val tickers = graph.binance.tickers(symbols)
+                val fng = com.archangel.ai.market.MarketData.fearGreed()
+                val portfolio = if (s.exchangeReady) runCatching {
+                    graph.binance.portfolio(s.binanceKey, s.binanceSecret, s.binanceTestnet)
+                }.getOrNull() else null
+                com.archangel.ai.market.Analytics.spokenSummary(tickers, fng, portfolio)
+            }
+            is PhoneAction.Lesson -> {
+                val lesson = action.id?.let { com.archangel.ai.learn.Academy.byId(it) }
+                lessonRequest = action.id ?: ""
+                navigateTo = AppScreen.MARKET
+                reply(lesson?.summary?.plus(" Подробности — на экране.") ?: "Открываю обучение. Выберите урок.", viaVoice)
             }
             PhoneAction.Portfolio -> background(viaVoice) {
                 val s = settings.value

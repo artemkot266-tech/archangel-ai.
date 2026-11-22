@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,8 +69,15 @@ fun MarketScreen(
     settings: AppSettings,
     onOrder: (PhoneAction.Order) -> Unit,
     onAlertAdded: () -> Unit = {},
+    onSpeak: (String) -> Unit = {},
+    onSignalsOn: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Раздел «Обучение» открывается поверх рынка
+    vm.academy?.let { current ->
+        AcademyScreen(current, onOpen = { vm.academy = it }, onSpeak = onSpeak, modifier = modifier)
+        return
+    }
     // Автообновление котировок, пока экран открыт.
     LaunchedEffect(vm.symbol, vm.interval) {
         while (true) {
@@ -94,6 +102,9 @@ fun MarketScreen(
             trailing = if (settings.binanceTestnet) "Демо-счёт" else "Реальный счёт",
             modifier = Modifier.padding(vertical = 14.dp),
         )
+        Pill("Обучение: от пополнения до стоп-лосса", onClick = { vm.academy = "" }, icon = Icons.Filled.School, height = 40.dp,
+            modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(14.dp))
 
         // ── Монеты
         Row(
@@ -188,7 +199,7 @@ fun MarketScreen(
             if (vm.candles.isEmpty()) {
                 MonoLabel(if (vm.loading) "Загружаю свечи…" else "Нет данных")
             } else {
-                CandleChart(vm.candles, visible, Modifier.fillMaxSize())
+                CandleChart(vm.candles, visible, Modifier.fillMaxSize(), levels = vm.levels)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -198,6 +209,45 @@ fun MarketScreen(
         RsiStrip(vm.candles, visible, Modifier.fillMaxWidth().height(56.dp))
         Spacer(Modifier.height(8.dp))
         MonoLabel("—— SMA 20    – – SMA 50    касание — перекрестие, свайп — история", color = Smoke)
+        if (vm.levels.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            MonoLabel("пунктир: светлый — поддержка, оранжевый — сопротивление · цифра — касания", color = Smoke)
+        }
+
+        // ── Тренд по таймфреймам
+        if (vm.trends.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            MonoLabel("Тренд", color = Bone)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                vm.trends.forEach { (tf, tr) ->
+                    val col = when (tr) {
+                        com.archangel.ai.market.Trend.UP -> Bone
+                        com.archangel.ai.market.Trend.DOWN -> Ember
+                        com.archangel.ai.market.Trend.FLAT -> Smoke
+                    }
+                    Box(
+                        Modifier
+                            .border(1.dp, Hairline, RoundedCornerShape(50))
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
+                    ) {
+                        Text("$tf · ${tr.label}", style = TextStyles.Mono.copy(fontSize = 12.sp), color = col)
+                    }
+                }
+            }
+            val ups = vm.trends.count { it.second == com.archangel.ai.market.Trend.UP }
+            val downs = vm.trends.count { it.second == com.archangel.ai.market.Trend.DOWN }
+            Spacer(Modifier.height(6.dp))
+            MonoLabel(
+                when {
+                    ups == vm.trends.size -> "Все таймфреймы вверх — тренд согласован."
+                    downs == vm.trends.size -> "Все таймфреймы вниз — тренд согласован."
+                    ups > 0 && downs > 0 -> "Таймфреймы спорят — осторожнее со входом."
+                    else -> "Явного тренда нет."
+                },
+                color = Smoke,
+            )
+        }
 
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -221,6 +271,72 @@ fun MarketScreen(
                     Spacer(Modifier.height(10.dp))
                     if (vm.analyzing) Text("Изучаю свечи и индикаторы…", style = TextStyles.BodySmall)
                     else SelectionContainer { Text(vm.analysis, style = TextStyles.Body.copy(fontSize = 15.sp)) }
+                }
+            }
+        }
+
+        // ── Настроение и новости
+        if (vm.fearGreed != null || vm.news.isNotEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            Panel(Modifier.fillMaxWidth()) {
+                Column {
+                    vm.fearGreed?.let { fg ->
+                        MonoLabel("Индекс страха и жадности", color = Smoke)
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text("${fg.value}", style = TextStyles.Title.copy(fontSize = 28.sp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(fg.label, style = TextStyles.Body, color = if (fg.value >= 56) Ember else Bone)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Box(Modifier.fillMaxWidth().height(4.dp).background(Hairline, RoundedCornerShape(2.dp))) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(fg.value / 100f)
+                                    .height(4.dp)
+                                    .background(Ember, RoundedCornerShape(2.dp))
+                            )
+                        }
+                    }
+                    if (vm.news.isNotEmpty()) {
+                        val uri = androidx.compose.ui.platform.LocalUriHandler.current
+                        Spacer(Modifier.height(16.dp))
+                        MonoLabel("Новости · ${vm.symbol.removeSuffix("USDT")}", color = Smoke)
+                        vm.news.forEach { n ->
+                            Text(
+                                n.title,
+                                style = TextStyles.BodySmall.copy(fontSize = 14.sp),
+                                color = Bone,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = n.link.isNotBlank()) { runCatching { uri.openUri(n.link) } }
+                                    .padding(vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Автосигналы
+        Spacer(Modifier.height(28.dp))
+        SectionHeader("03.0", "Автосигналы")
+        Spacer(Modifier.height(6.dp))
+        com.archangel.ai.ui.components.ToggleRow(
+            "Сигналы раз в час",
+            settings.signalsEnabled,
+            sub = "Пробой уровня, всплеск объёма, RSI в крайней зоне, разворот MACD. Только уведомления — сделок не делаю.",
+        ) { on ->
+            vm.setSignals(on)
+            if (on) onSignalsOn()
+        }
+        if (settings.signalsEnabled) {
+            Spacer(Modifier.height(6.dp))
+            MonoLabel("Следить за монетами:", color = Smoke)
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                (BinanceClient.FAVORITES + settings.watchlist).distinct().forEach { sym ->
+                    Chip(sym.removeSuffix("USDT"), onClick = { vm.toggleWatch(sym) }, selected = sym in settings.watchlist)
                 }
             }
         }

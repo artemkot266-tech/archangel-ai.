@@ -49,7 +49,12 @@ import kotlin.math.roundToInt
  * Свайп влево/вправо — прокрутка истории, касание — перекрестие с OHLC.
  */
 @Composable
-fun CandleChart(candles: List<Candle>, visible: Int, modifier: Modifier = Modifier) {
+fun CandleChart(
+    candles: List<Candle>,
+    visible: Int,
+    modifier: Modifier = Modifier,
+    levels: List<com.archangel.ai.market.Level> = emptyList(),
+) {
     val measurer = rememberTextMeasurer()
     var offset by remember(candles.size) { mutableFloatStateOf(0f) } // сколько свечей сдвинуто от правого края
     var crossX by remember { mutableStateOf<Float?>(null) }
@@ -136,6 +141,20 @@ fun CandleChart(candles: List<Candle>, visible: Int, modifier: Modifier = Modifi
             } else {
                 drawRect(color, Offset(cx - bodyW / 2, top), Size(bodyW, bodyH))
             }
+        }
+
+        // Уровни: поддержка — зелёный пунктир, сопротивление — красный, слева подпись с числом касаний
+        levels.forEach { lv ->
+            if (lv.price < lo || lv.price > hi) return@forEach
+            val yy = y(lv.price)
+            val col = (if (lv.support) MarketUp else MarketDown).copy(alpha = 0.55f)
+            drawLine(col, Offset(0f, yy), Offset(plotW, yy), 1.2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f)))
+            drawLabel(
+                measurer,
+                "${if (lv.support) "поддержка" else "сопротивление"} ${Indicators.formatPrice(lv.price)} · ${lv.touches}",
+                Offset(4.dp.toPx(), yy - 13.dp.toPx()),
+                labelStyle.copy(color = col.copy(alpha = 0.95f)),
+            )
         }
 
         // Линия последней цены с плашкой

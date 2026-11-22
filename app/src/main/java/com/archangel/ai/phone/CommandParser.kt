@@ -142,6 +142,19 @@ object CommandParser {
         Regex("^запомни\\s*[:,]?\\s*(что\\s+)?(.*)$").find(s)?.let { return PhoneAction.Remember(it.groupValues[2].trim().ifEmpty { null }) }
         Regex("^забудь\\s*[:,]?\\s*(что\\s+|про\\s+|о\\s+)?(.+)$").find(s)?.let { return PhoneAction.Forget(it.groupValues[2].trim()) }
 
+        // Сводка рынка: «что с рынком?», «как там крипта?», «обзор рынка»
+        Regex("^((что|как)\\s+(там\\s+)?(с|на|по)?\\s*(рынком|рынке|рынку|рынок|криптой|крипте|крипта|криптовалютой|криптовалютами|биткоином и рынком)|(обзор|сводка|сводку|сводкой) (по )?(рынка|рынку|рынке|крипты|крипте|крипто))").find(s)?.let {
+            return PhoneAction.MarketSummary
+        }
+
+        // Обучение: «научи ставить стоп-лосс», «объясни, что такое RSI», «как пополнить Bybit»
+        Regex("^(открой |покажи )?(обучение|уроки|академи[юя])$").find(s)?.let { return PhoneAction.Lesson(null) }
+        Regex("^(научи( меня)?|обучи( меня)?|урок( про| по)?|объясни( мне)?|расскажи( мне)?( про| о| об)?|что такое|как пополнить|как пополнять|как завести деньги|как закинуть деньги|как перевести|как поставить|как ставить)([\\s,]|$)").find(s)?.let {
+            val lesson = com.archangel.ai.learn.Academy.find(s)
+            // Только если тема наша — иначе пусть отвечает «мозг» («объясни теорию относительности»)
+            if (lesson != null) return PhoneAction.Lesson(lesson.id)
+        }
+
         // Погода и брифинг
         Regex("^(какая|какой|что с|что по|скажи|покажи|расскажи)?\\s*(будет\\s+)?(сегодня\\s+|завтра\\s+)?(погода|погоду|прогноз)").find(s)?.let {
             return PhoneAction.Weather(if (s.contains("завтра")) 1 else 0)
@@ -437,6 +450,8 @@ object CommandParser {
             "price_alert" -> PhoneAction.PriceAlert(o.getString("symbol").uppercase(), o.optDouble("price").takeIf { !it.isNaN() })
             "remember" -> PhoneAction.Remember(str("fact"))
             "find_phone" -> PhoneAction.FindPhone(o.optBoolean("on", true))
+            "market_summary" -> PhoneAction.MarketSummary
+            "lesson" -> PhoneAction.Lesson(str("id")?.takeIf { com.archangel.ai.learn.Academy.byId(it) != null })
             else -> null
         }
     } catch (e: Exception) {
@@ -465,6 +480,8 @@ object CommandParser {
 {"type":"calendar","title":"событие","at":"2026-01-31T15:00"}
 {"type":"price_alert","symbol":"BTCUSDT","price":100000}
 {"type":"find_phone","on":true}  (пользователь ищет телефон: громкий сигнал; on:false — выключить)
+{"type":"market_summary"}  (обзор рынка: монеты, индекс страха и жадности, портфель)
+{"type":"lesson","id":"risk"}  (открыть урок; id из: basics, stablecoins, security, api_keys, deposit_choose, deposit_binance, deposit_bybit, deposit_okx, deposit_whitebit, transfer, p2p_safety, candles, levels, rsi, macd, sma, volume, mtf, fng, signals, orders, stoploss, risk, dca, fees, emotions, practice, voice)
 {"type":"remember","fact":"факт о пользователе — ТОЛЬКО если он сам попросил запомнить"}
 {"type":"market","symbol":"BTCUSDT"}
 {"type":"order","side":"BUY|SELL","symbol":"BTCUSDT","usdt":20}

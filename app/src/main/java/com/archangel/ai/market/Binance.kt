@@ -78,6 +78,28 @@ class BinanceClient {
         )
     }
 
+    /** Котировки сразу по нескольким парам одним запросом. */
+    suspend fun tickers(symbols: List<String>): List<Ticker> {
+        if (symbols.isEmpty()) return emptyList()
+        val list = symbols.joinToString(",", "[", "]") { "\"$it\"" }
+        val res = Http.request("$publicBase/api/v3/ticker/24hr?symbols=" + URLEncoder.encode(list, "UTF-8"))
+        if (!res.ok) throw FriendlyException(explain(res))
+        val arr = JSONArray(res.body)
+        val bySymbol = (0 until arr.length()).map { arr.getJSONObject(it) }.associateBy { it.getString("symbol") }
+        return symbols.mapNotNull { s ->
+            bySymbol[s]?.let { o ->
+                Ticker(
+                    symbol = s,
+                    last = o.getString("lastPrice").toDouble(),
+                    changePct = o.getString("priceChangePercent").toDouble(),
+                    high = o.getString("highPrice").toDouble(),
+                    low = o.getString("lowPrice").toDouble(),
+                    quoteVolume = o.getString("quoteVolume").toDouble(),
+                )
+            }
+        }
+    }
+
     suspend fun balances(key: String, secret: String, testnet: Boolean): List<Balance> {
         val res = signed("GET", "/api/v3/account", mapOf("omitZeroBalances" to "true"), key, secret, testnet)
         val arr = JSONObject(res.body).optJSONArray("balances") ?: JSONArray()

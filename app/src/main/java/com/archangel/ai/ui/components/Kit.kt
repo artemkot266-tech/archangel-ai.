@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -41,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.archangel.ai.CrashGuard
 import com.archangel.ai.ui.theme.Ash
 import com.archangel.ai.ui.theme.Bone
@@ -199,4 +201,32 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Uni
 @Composable
 fun AmbientBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     Box(modifier.fillMaxSize().background(Obsidian), content = content)
+}
+
+/** Строка с переключателем: заголовок, подпись и Switch в стиле приложения. */
+@Composable
+fun ToggleRow(title: String, checked: Boolean, sub: String? = null, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = TextStyles.Body)
+            if (sub != null) Text(sub, style = TextStyles.BodySmall.copy(fontSize = 12.sp, color = Smoke))
+        }
+        androidx.compose.material3.Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = androidx.compose.material3.SwitchDefaults.colors(
+                checkedThumbColor = Obsidian,
+                checkedTrackColor = Bone,
+                checkedBorderColor = Bone,
+                uncheckedThumbColor = Ash,
+                uncheckedTrackColor = com.archangel.ai.ui.theme.Surface2,
+                uncheckedBorderColor = Hairline,
+            ),
+        )
+    }
 }

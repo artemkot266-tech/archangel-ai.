@@ -108,6 +108,9 @@ data class AppSettings(
     val binanceKey: String = "",
     val binanceSecret: String = "",
     val binanceTestnet: Boolean = true,
+    /** Автосигналы раз в час по списку монет. */
+    val signalsEnabled: Boolean = false,
+    val watchlist: List<String> = DEFAULT_WATCHLIST,
 ) {
     fun keyFor(b: Brain = brain) = keys[b].orEmpty()
     fun modelFor(b: Brain = brain) = models[b]?.takeIf { it.isNotBlank() } ?: b.defaultModel
@@ -123,6 +126,7 @@ data class AppSettings(
                 "ответы часто озвучиваются голосом."
         /** «George» в ElevenLabs — тёплый британский мужской голос. */
         const val DEFAULT_ELEVEN_VOICE = "JBFqnCBsd6RMkjVDRZzb"
+        val DEFAULT_WATCHLIST = listOf("BTCUSDT", "ETHUSDT", "SOLUSDT")
     }
 }
 
@@ -171,6 +175,9 @@ class SettingsStore(context: Context) {
             binanceKey = SecretBox.decrypt(prefs.getString("bn_key", "") ?: ""),
             binanceSecret = SecretBox.decrypt(prefs.getString("bn_secret", "") ?: ""),
             binanceTestnet = prefs.getBoolean("bn_testnet", true),
+            signalsEnabled = prefs.getBoolean("signals", false),
+            watchlist = (prefs.getString("watchlist", null) ?: AppSettings.DEFAULT_WATCHLIST.joinToString(","))
+                .split(',').map { it.trim().uppercase() }.filter { it.isNotEmpty() },
         )
     }
 
@@ -218,6 +225,8 @@ class SettingsStore(context: Context) {
             putString("bn_key", SecretBox.encrypt(clean.binanceKey))
             putString("bn_secret", SecretBox.encrypt(clean.binanceSecret))
             putBoolean("bn_testnet", clean.binanceTestnet)
+            putBoolean("signals", clean.signalsEnabled)
+            putString("watchlist", clean.watchlist.distinct().joinToString(","))
         }.commit() // синхронно: фоновые приёмники (брифинг) читают эти же настройки
         _settings.value = clean
     }

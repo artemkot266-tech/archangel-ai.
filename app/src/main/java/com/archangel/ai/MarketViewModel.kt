@@ -51,6 +51,48 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
     var portfolio by mutableStateOf<Portfolio?>(null)
         private set
 
+    /** Уровни поддержки/сопротивления для текущего графика. */
+    val levels: List<com.archangel.ai.market.Level>
+        get() = ticker?.let { t -> com.archangel.ai.market.Analytics.levels(candles, t.last) } ?: emptyList()
+
+    /** Тренд на нескольких таймфреймах: 15м, 1ч, 4ч, 1д. */
+    var trends by mutableStateOf<List<Pair<String, com.archangel.ai.market.Trend>>>(emptyList())
+        private set
+    var fearGreed by mutableStateOf<com.archangel.ai.market.FearGreed?>(null)
+        private set
+    var news by mutableStateOf<List<com.archangel.ai.market.NewsItem>>(emptyList())
+        private set
+
+    /** Раздел «Обучение»: null — закрыт, "" — список уроков, иначе id урока. */
+    var academy by mutableStateOf<String?>(null)
+
+    private fun loadExtras(sym: String) {
+        viewModelScope.launch {
+            val list = listOf("15m" to "15м", "1h" to "1ч", "4h" to "4ч", "1d" to "1д").mapNotNull { (iv, label) ->
+                runCatching { graph.binance.klines(sym, iv, 120) }.getOrNull()?.let { label to com.archangel.ai.market.Analytics.trend(it) }
+            }
+            if (sym == symbol) trends = list
+        }
+        viewModelScope.launch { fearGreed = com.archangel.ai.market.MarketData.fearGreed() }
+        viewModelScope.launch {
+            val all = com.archangel.ai.market.MarketData.news()
+            if (sym == symbol) news = com.archangel.ai.market.Analytics.newsFor(sym, all)
+        }
+    }
+
+    // ── Автосигналы
+    fun setSignals(on: Boolean) {
+        graph.settings.update { it.copy(signalsEnabled = on) }
+        com.archangel.ai.market.SignalScheduler.apply(graph, on)
+    }
+
+    fun toggleWatch(sym: String) {
+        graph.settings.update { st ->
+            val list = if (sym in st.watchlist) st.watchlist - sym else st.watchlist + sym
+            st.copy(watchlist = list)
+        }
+    }
+
     private val alertStore = AlertStore(app)
     var alerts by mutableStateOf(alertStore.all())
         private set
@@ -71,6 +113,7 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         refresh()
+        loadExtras(symbol)
     }
 
     fun select(newSymbol: String) {
@@ -80,7 +123,9 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
         analysis = ""
         analysisJob?.cancel(); analyzing = false
         candles = emptyList(); ticker = null
+        trends = emptyList(); news = emptyList()
         refresh()
+        loadExtras(s)
     }
 
     fun changeInterval(newInterval: String) {
@@ -180,6 +225,10 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
                     "гистограмма=${macd.hist.last()?.let(f) ?: "—"}"
             )
             sr?.let { appendLine("Мин/макс последних 50 свечей: ${f(it.first)} / ${f(it.second)}") }
+            val lv = com.archangel.ai.market.Analytics.levels(c, last)
+            if (lv.isNotEmpty()) appendLine("Уровни: " + lv.joinToString("; ") { "${if (it.support) "поддержка" else "сопротивление"} ${f(it.price)} (${it.reason})" })
+            if (trends.isNotEmpty()) appendLine("Тренд по таймфреймам: " + trends.joinToString(", ") { "${it.first} — ${it.second.label}" })
+            fearGreed?.let { appendLine("Индекс страха и жадности: ${it.value} (${it.label})") }
             appendLine()
             appendLine("Последние 40 свечей:")
             appendLine(recent)
