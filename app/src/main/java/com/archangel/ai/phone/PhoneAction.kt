@@ -96,6 +96,12 @@ sealed class PhoneAction {
     object ReadMessages : PhoneAction()
     /** «Где телефон?» — громкий сигнал (on = true) или «нашёл» — выключить (on = false). */
     data class FindPhone(val on: Boolean = true) : PhoneAction()
+    /** «Потратил 200 на кофе». currency — «₽», «грн», «$», «€», «₸» или пусто. */
+    data class Expense(val amount: Double, val currency: String, val category: String) : PhoneAction()
+    /** «Сколько я потратил за неделю?» period — имя ExpensePeriod; category — фильтр («на кофе») или null. */
+    data class ExpenseSummary(val period: String, val category: String? = null) : PhoneAction()
+    /** «Удали последний расход». */
+    object ExpenseUndo : PhoneAction()
 }
 
 enum class VolumeDir { UP, DOWN, MUTE, MAX }

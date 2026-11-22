@@ -37,6 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.archangel.ai.features.Expense
+import com.archangel.ai.features.ExpensePeriod
+import com.archangel.ai.features.Expenses
 import com.archangel.ai.phone.CommandParser
 import com.archangel.ai.tasks.Note
 import com.archangel.ai.tasks.Reminder
@@ -54,7 +57,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** «Дела»: напоминания и заметки. Всё создаётся и голосом: «напомни…», «запиши заметку…». */
+/** «Дела»: напоминания, заметки и расходы. Всё создаётся и голосом: «напомни…», «запиши заметку…». */
 @Composable
 fun TasksScreen(
     notes: List<Note>,
@@ -64,6 +67,8 @@ fun TasksScreen(
     onDeleteNote: (Long) -> Unit,
     onDeleteReminder: (Long) -> Unit,
     onSay: (String) -> Unit,
+    expenses: List<Expense> = emptyList(),
+    onDeleteExpense: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LaunchedEffect(Unit) { onRefresh() }
@@ -127,6 +132,42 @@ fun TasksScreen(
         val fmt = SimpleDateFormat("d MMM, HH:mm", Locale("ru"))
         notes.forEach { n ->
             ItemRow(title = n.text, sub = fmt.format(Date(n.created)), accent = false, onDelete = { onDeleteNote(n.id) })
+        }
+
+        // ── Расходы
+        Spacer(Modifier.height(28.dp))
+        Text("Расходы", style = TextStyles.Title)
+        Spacer(Modifier.height(4.dp))
+        Text("Скажите: «Потратил 200 на кофе» или «Сколько я потратил за неделю?».", style = TextStyles.BodySmall)
+        Spacer(Modifier.height(12.dp))
+        var expenseDraft by rememberSaveable { mutableStateOf("") }
+        InputRow(
+            value = expenseDraft,
+            placeholder = "Например: 350 такси",
+            onChange = { expenseDraft = it },
+            onDone = {
+                if (expenseDraft.isNotBlank()) {
+                    onSay("потратил ${expenseDraft.trim()}")
+                    expenseDraft = ""
+                }
+            },
+        )
+        Spacer(Modifier.height(10.dp))
+        val monthFrom = Expenses.periodStart(ExpensePeriod.MONTH)
+        val month = expenses.filter { it.at >= monthFrom }
+        if (expenses.isEmpty()) {
+            Text("Пока пусто.", style = TextStyles.BodySmall.copy(color = Smoke))
+        } else {
+            MonoLabel("ЭТОТ МЕСЯЦ · ${Expenses.totalText(month)}", color = Ember)
+            Spacer(Modifier.height(6.dp))
+        }
+        expenses.take(20).forEach { e ->
+            ItemRow(
+                title = "${Expenses.money(e.amount, e.currency)} — ${e.category}",
+                sub = fmt.format(Date(e.at)),
+                accent = false,
+                onDelete = { onDeleteExpense(e.id) },
+            )
         }
         Spacer(Modifier.height(32.dp))
     }
