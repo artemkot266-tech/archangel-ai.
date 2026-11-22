@@ -298,7 +298,7 @@ fun ArchangelRoot(
                         godMode = vm.godMode,
                         godRole = vm.godRole,
                         onGod = { vm.setGod(it) },
-                        onGodRole = { vm.setGodRole(it) },
+                        onGodRole = { vm.chooseGodRole(it) },
                         onGodSummary = { vm.godSummary() },
                     )
                     AppScreen.CHAT -> ChatScreen(

@@ -94,7 +94,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     fun setGod(on: Boolean, viaVoice: Boolean = false) = handle(PhoneAction.GodMode(on), viaVoice)
-    fun setGodRole(role: com.archangel.ai.ai.GodRole) = handle(PhoneAction.GodRoleSet(role.name), viaVoice = false)
+    fun chooseGodRole(role: com.archangel.ai.ai.GodRole) = handle(PhoneAction.GodRoleSet(role.name), viaVoice = false)
     fun godSummary() = handle(PhoneAction.GodSummary, viaVoice = false)
     /** Урок, который попросили открыть голосом ("" — список уроков). */
     var lessonRequest by mutableStateOf<String?>(null)

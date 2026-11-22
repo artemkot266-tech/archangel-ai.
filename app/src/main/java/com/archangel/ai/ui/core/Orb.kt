@@ -69,7 +69,14 @@ fun Orb(
     modifier: Modifier = Modifier,
     theme: OrbTheme = OrbTheme.PLATINUM,
     onClick: (() -> Unit)? = null,
+    /** Режим бога: нанотехнологичный слой поверх сферы. */
+    god: Boolean = false,
 ) {
+    val godF by animateFloatAsState(if (god) 1f else 0f, tween(900), label = "god")
+    val boot = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(god) {
+        if (god) { boot.snapTo(0f); boot.animateTo(1f, tween(1700)) }
+    }
     val look = lookFor(state, theme)
     val core by animateColorAsState(look.core, tween(700), label = "core")
     val rim by animateColorAsState(look.rim, tween(700), label = "rim")
@@ -115,15 +122,30 @@ fun Orb(
             runCatching { OrbShader() }.getOrNull()
         } else null
     }
+    // Нано-слой — отдельный шейдер: не скомпилируется — режим бога просто без оболочки и короны
+    val nano = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !CrashGuard.safeGraphics) {
+            runCatching { NanoShader() }.getOrNull()
+        } else null
+    }
     if (shader != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Canvas(m) {
             val voice = if (speaking) 0.35f + 0.3f * sin(phase * 7f) * sin(phase * 2.3f) else smoothLevel
+            val (c, r) = NanoLayer.sphere(size, phase, voice, active)
+            with(NanoLayer) { backGlow(c, r, phase, voice, godF) }
             shader.draw(this, phase, voice, energy, swirl, active, core, rim)
+            if (godF > 0.01f) {
+                nano?.let { runCatching { it.draw(this, phase, voice, godF, boot.value, c, r) } }
+                with(NanoLayer) { swarm(c, r, phase, voice, godF) }
+            }
         }
     } else {
         Canvas(m) {
             val voice = if (speaking) 0.35f + 0.3f * sin(phase * 7f) * sin(phase * 2.3f) else smoothLevel
+            val (c, r) = NanoLayer.sphere(size, phase, voice, active)
+            with(NanoLayer) { backGlow(c, r, phase, voice, godF) }
             drawFallbackScene(phase, voice, energy, active, core, rim)
+            if (godF > 0.01f) with(NanoLayer) { swarm(c, r, phase, voice, godF) }
         }
     }
 }

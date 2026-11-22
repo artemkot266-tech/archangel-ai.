@@ -133,6 +133,7 @@ fun CoreScreen(
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onCoreTap()
                 },
+                god = godMode,
             )
         }
 
