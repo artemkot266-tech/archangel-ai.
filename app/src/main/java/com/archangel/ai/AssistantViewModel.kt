@@ -254,6 +254,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             Ask.RememberText -> handle(PhoneAction.Remember(text.trim().ifEmpty { null }), viaVoice)
+            is Ask.JournalReason -> {} // обработано выше
             is Ask.AlertPrice -> {
                 val price = Regex("([0-9][0-9 ]*(?:[.,][0-9]+)?)\\s*(тысяч|тыс|к)?").find(text)?.let { pm ->
                     val base = pm.groupValues[1].replace(" ", "").replace(',', '.').toDoubleOrNull()
