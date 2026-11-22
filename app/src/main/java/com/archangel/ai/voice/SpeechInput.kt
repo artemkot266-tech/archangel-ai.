@@ -25,6 +25,31 @@ class SpeechInput(
 
     val available get() = SpeechRecognizer.isRecognitionAvailable(context)
 
+    /** Глушит системный «бип» при перезапуске микрофона в режиме ожидания (если не играет музыка). */
+    var quiet = false
+    private val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var muted = false
+
+    private fun muteBeep() {
+        if (!quiet || audio.isMusicActive) return
+        runCatching {
+            audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
+            audio.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_MUTE, 0)
+            muted = true
+        }
+        mainHandler.postDelayed({ unmute() }, 700)
+    }
+
+    fun unmute() {
+        if (!muted) return
+        muted = false
+        runCatching {
+            audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
+            audio.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_UNMUTE, 0)
+        }
+    }
+
     fun start() {
         if (!available) {
             onError("На телефоне нет службы распознавания речи. Установите приложение Google.")
@@ -65,6 +90,7 @@ class SpeechInput(
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         isListening = true
+        muteBeep()
         r.startListening(intent)
     }
 

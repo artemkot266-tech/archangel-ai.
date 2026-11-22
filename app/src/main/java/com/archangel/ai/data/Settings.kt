@@ -97,6 +97,10 @@ data class AppSettings(
     val briefingMinute: Int = 0,
     /** Режим ожидания: пока приложение открыто, слушает и откликается на имя без касания. */
     val standby: Boolean = false,
+    /** Слушать имя и в фоне — как умная колонка (служба со значком в шторке). */
+    val standbyBackground: Boolean = false,
+    /** Фоновое прослушивание только на зарядке — бережёт батарею. */
+    val standbyOnlyCharging: Boolean = false,
     /** Home Assistant: адрес вида http://192.168.1.10:8123 и долгоживущий токен. */
     val haUrl: String = "",
     val haToken: String = "",
@@ -160,6 +164,8 @@ class SettingsStore(context: Context) {
             briefingHour = prefs.getInt("briefing_hour", 8),
             briefingMinute = prefs.getInt("briefing_minute", 0),
             standby = prefs.getBoolean("standby", false),
+            standbyBackground = prefs.getBoolean("standby_bg", false),
+            standbyOnlyCharging = prefs.getBoolean("standby_charging", false),
             haUrl = prefs.getString("ha_url", "") ?: "",
             haToken = SecretBox.decrypt(prefs.getString("ha_token", "") ?: ""),
             binanceKey = SecretBox.decrypt(prefs.getString("bn_key", "") ?: ""),
@@ -205,6 +211,8 @@ class SettingsStore(context: Context) {
             putInt("briefing_hour", clean.briefingHour)
             putInt("briefing_minute", clean.briefingMinute)
             putBoolean("standby", clean.standby)
+            putBoolean("standby_bg", clean.standbyBackground)
+            putBoolean("standby_charging", clean.standbyOnlyCharging)
             putString("ha_url", clean.haUrl.trim().trimEnd('/'))
             putString("ha_token", SecretBox.encrypt(clean.haToken.trim()))
             putString("bn_key", SecretBox.encrypt(clean.binanceKey))

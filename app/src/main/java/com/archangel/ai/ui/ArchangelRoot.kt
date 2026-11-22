@@ -102,7 +102,7 @@ fun ArchangelRoot(
     sharedText: String? = null,
     onSharedHandled: () -> Unit = {},
 ) {
-    val vm: AssistantViewModel = viewModel()
+    val vm: AssistantViewModel = (LocalContext.current.applicationContext as ArchangelApp).assistant
     val market: MarketViewModel = viewModel()
     val context = LocalContext.current
     val app = context.applicationContext as ArchangelApp
@@ -172,6 +172,15 @@ fun ArchangelRoot(
         if (settings.standby && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             standbyMicLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
+    }
+
+    // Режим «умной колонки»: служба запускается, пока приложение открыто (так требует Android для микрофона)
+    LaunchedEffect(settings.standby, settings.standbyBackground, settings.onboardingDone) {
+        val mic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (settings.standby && settings.standbyBackground && settings.onboardingDone && mic) {
+            com.archangel.ai.features.ListeningService.start(context)
+            vm.needNotificationPermission = true
+        } else com.archangel.ai.features.ListeningService.stop(context)
     }
 
     // «Поделиться → Архангел»

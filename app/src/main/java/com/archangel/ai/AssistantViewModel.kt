@@ -144,6 +144,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         data class AlertPrice(val symbol: String) : Ask()
         data class CalTitle(val at: Long?) : Ask()
         data class CalTime(val title: String) : Ask()
+        object Confirm : Ask()
     }
 
     private var awaiting: Ask? = null
@@ -212,6 +213,20 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 if (at == null) ask(a, "Не понял время. Скажите, например: «завтра в 9» или «через 20 минут».", viaVoice)
                 else handle(PhoneAction.Reminder(a.text, at), viaVoice)
             }
+            Ask.Confirm -> {
+                val p = pending
+                when {
+                    p == null -> {}
+                    isYes(text) || Regex("^(подтверждаю|звони|отправляй|покупай|продавай|выполняй)").containsMatchIn(text.lowercase()) -> {
+                        val realMoney = p.action is PhoneAction.Order && !settings.value.binanceTestnet
+                        if (realMoney) {
+                            awaiting = null
+                            reply("Сделки на реальном счёте подтверждаются только кнопкой на экране.", viaVoice)
+                        } else confirmPending()
+                    }
+                    else -> cancelPending()
+                }
+            }
             Ask.RememberText -> handle(PhoneAction.Remember(text.trim().ifEmpty { null }), viaVoice)
             is Ask.AlertPrice -> {
                 val price = Regex("([0-9][0-9 ]*(?:[.,][0-9]+)?)\\s*(тысяч|тыс|к)?").find(text)?.let { pm ->
@@ -240,13 +255,21 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     private var standbyJob: Job? = null
     /** Приложение на экране (UI сообщает из жизненного цикла активности). */
     var foreground by mutableStateOf(false)
+    /** Работает фоновая служба прослушивания (режим «умной колонки»). */
+    var backgroundActive by mutableStateOf(false)
+
+    private fun charging(): Boolean {
+        val bm = graph.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
+        return bm.isCharging
+    }
 
     private fun micGranted() =
         ContextCompat.checkSelfPermission(graph, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun standbyWanted(): Boolean {
         val s = settings.value
-        return s.standby && s.onboardingDone && foreground && core == CoreState.IDLE &&
+        val where = foreground || (backgroundActive && s.standbyBackground && (!s.standbyOnlyCharging || charging()))
+        return s.standby && s.onboardingDone && where && core == CoreState.IDLE &&
             pending == null && awaiting == null && micGranted()
     }
 
@@ -258,6 +281,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             if (standbyWanted()) {
                 if (!speech.isListening) {
                     passive = true
+                    speech.quiet = true
                     speech.start()
                 }
             } else if (passive) {
@@ -345,7 +369,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            androidx.compose.runtime.snapshotFlow { Triple(core, foreground, pending) }.collect { refreshStandby() }
+            androidx.compose.runtime.snapshotFlow { listOf(core, foreground, pending, backgroundActive) }.collect { refreshStandby() }
         }
         viewModelScope.launch { settings.collect { refreshStandby() } }
         val saved = graph.chatStore.load()
@@ -374,6 +398,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startListening() {
         passive = false
+        speech.quiet = false
+        speech.unmute()
         speaker.stop()
         hint = ""
         partial = ""
@@ -561,22 +587,20 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             is PhoneAction.Order -> {
                 val s = settings.value
                 val mode = if (s.binanceTestnet) "ДЕМО-СЧЁТ — ненастоящие деньги" else "РЕАЛЬНЫЙ СЧЁТ"
-                pending = PendingAction(
-                    action = action,
-                    title = (if (action.buy) "Купить " else "Продать ") + action.symbol.removeSuffix("USDT"),
-                    details = "Рыночный ордер на ${Indicators.formatPrice(action.usdt)} USDT · ${action.symbol}\nРежим: $mode",
-                    danger = !s.binanceTestnet,
+                requestConfirmation(
+                    PendingAction(
+                        action = action,
+                        title = (if (action.buy) "Купить " else "Продать ") + action.symbol.removeSuffix("USDT"),
+                        details = "Рыночный ордер на ${Indicators.formatPrice(action.usdt)} USDT · ${action.symbol}\nРежим: $mode",
+                        danger = !s.binanceTestnet,
+                    ),
+                    viaVoice,
                 )
-                core = CoreState.IDLE
             }
-            is PhoneAction.Call -> {
-                pending = PendingAction(action, "Позвонить", "Кому: ${action.target}", danger = false)
-                core = CoreState.IDLE
-            }
-            is PhoneAction.Sms -> {
-                pending = PendingAction(action, "Сообщение", "Кому: ${action.target}\n«${action.text}»", danger = false)
-                core = CoreState.IDLE
-            }
+            is PhoneAction.Call ->
+                requestConfirmation(PendingAction(action, "Позвонить", "Кому: ${action.target}", danger = false), viaVoice)
+            is PhoneAction.Sms ->
+                requestConfirmation(PendingAction(action, "Сообщение", "Кому: ${action.target}\n«${action.text}»", danger = false), viaVoice)
             is PhoneAction.YouTube ->
                 if (action.query == null) ask(Ask.YouTubeQuery, "Что найти на YouTube?", viaVoice)
                 else reply(graph.phone.youtube(action.query), viaVoice)
@@ -884,13 +908,30 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         if (speak) say(text) else core = CoreState.IDLE
     }
 
+    /** Действие требует «Да»: показываем диалог и, если разговор голосовой, спрашиваем голосом. */
+    private fun requestConfirmation(p: PendingAction, viaVoice: Boolean) {
+        pending = p
+        if (viaVoice || !foreground) {
+            val q = p.title + (when (val a = p.action) {
+                is PhoneAction.Call -> ": ${a.target}"
+                is PhoneAction.Sms -> " для ${a.target}"
+                is PhoneAction.Order -> " на ${Indicators.formatPrice(a.usdt)} долларов" +
+                    if (settings.value.binanceTestnet) " на демо-счёте" else " на РЕАЛЬНОМ счёте — подтвердите кнопкой на экране"
+                else -> ""
+            }) + "? Скажите «да» или «нет»."
+            ask(Ask.Confirm, q, viaVoice = true)
+        } else core = CoreState.IDLE
+    }
+
     fun cancelPending() {
+        if (awaiting == Ask.Confirm) awaiting = null
         pending?.let { add(Role.NOTE, "Отменено: ${it.title.lowercase()}.") }
         pending = null
     }
 
     /** Пользователь нажал «Да». [onOrderDone] — чтобы «Рынок» обновил баланс. */
     fun confirmPending(onOrderDone: () -> Unit = {}) {
+        if (awaiting == Ask.Confirm) awaiting = null
         val p = pending ?: return
         pending = null
         when (val a = p.action) {

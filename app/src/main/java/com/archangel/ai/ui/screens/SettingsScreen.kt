@@ -196,6 +196,36 @@ fun SettingsScreen(
             sub = "Пока Архангел открыт на экране, он слушает и откликается на «${s.wakeName.ifBlank { "Архангел" }}». " +
                 "Расходует больше батареи; телефон может коротко пикать при перезапуске микрофона.",
         ) { s = s.copy(standby = it) }
+        if (s.standby) {
+            Toggle(
+                "Слушать в фоне — как умная колонка",
+                s.standbyBackground,
+                sub = "Работает, даже когда приложение свёрнуто или экран выключен. В шторке будет значок «${s.wakeName.ifBlank { "Архангел" }} слушает».",
+            ) { s = s.copy(standbyBackground = it) }
+            if (s.standbyBackground) {
+                Toggle("Только на зарядке", s.standbyOnlyCharging, sub = "Бережёт батарею: слушает, когда телефон заряжается.") {
+                    s = s.copy(standbyOnlyCharging = it)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Чтобы телефон не закрывал Архангела в фоне, один раз разрешите (на Poco/Xiaomi это обязательно):",
+                    style = TextStyles.BodySmall,
+                )
+                Spacer(Modifier.height(8.dp))
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                Pill("1. Батарея: без ограничений", onClick = { com.archangel.ai.features.BackgroundHelp.batteryUnrestricted(ctx) }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Pill("2. Автозапуск", onClick = { com.archangel.ai.features.BackgroundHelp.autostart(ctx) }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Pill("3. Поверх других окон", onClick = { com.archangel.ai.features.BackgroundHelp.overlay(ctx) }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Третье нужно, чтобы из фона открывать YouTube, музыку, такси и звонки. На Xiaomi также включите в разрешениях " +
+                        "приложения «Отображать всплывающие окна в фоне». И закрепите Архангела в недавних приложениях (замочек на карточке).",
+                    style = TextStyles.BodySmall.copy(color = Smoke),
+                )
+            }
+        }
 
         // ── Умный дом
         Spacer(Modifier.height(20.dp))

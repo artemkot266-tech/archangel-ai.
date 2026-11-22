@@ -18,6 +18,15 @@ class ArchangelApp : Application() {
     lateinit var phone: PhoneController
         private set
 
+    /** Один ассистент на всё приложение: экран и фоновая служба работают с ним же. */
+    private val assistantStore = androidx.lifecycle.ViewModelStore()
+    val assistant: AssistantViewModel by lazy {
+        androidx.lifecycle.ViewModelProvider(
+            assistantStore,
+            androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(this),
+        )[AssistantViewModel::class.java]
+    }
+
     override fun onCreate() {
         super.onCreate()
         CrashGuard.install(this) // первым делом — чтобы поймать даже ошибку при старте
