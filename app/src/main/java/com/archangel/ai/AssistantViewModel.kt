@@ -299,7 +299,27 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         val s = settings.value
         val where = foreground || (backgroundActive && s.standbyBackground && (!s.standbyOnlyCharging || charging()))
         return s.standby && s.onboardingDone && where && core == CoreState.IDLE &&
-            pending == null && awaiting == null && micGranted()
+            pending == null && awaiting == null && micGranted() && !mediaPlaying
+    }
+
+    /**
+     * Играет видео или музыка — режим ожидания на паузе. Иначе распознавание забирает звук
+     * и система ставит видео на паузу. Проверяем раз в 1,5 секунды.
+     */
+    private var mediaPlaying = false
+    private val audioManager = graph.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+
+    private fun watchMedia() = viewModelScope.launch {
+        while (true) {
+            kotlinx.coroutines.delay(1_500)
+            // Пока Архангел сам говорит, «музыка» — это его голос: не считаем
+            if (core == CoreState.SPEAKING) continue
+            val now = runCatching { audioManager.isMusicActive }.getOrDefault(false)
+            if (now != mediaPlaying) {
+                mediaPlaying = now
+                refreshStandby(if (now) 0 else 1_200)
+            }
+        }
     }
 
     /** Включает/выключает фоновое ожидание имени в зависимости от состояния. */
@@ -446,6 +466,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         graph.phone.isForeground = { foreground }
+        watchMedia()
         viewModelScope.launch {
             androidx.compose.runtime.snapshotFlow { listOf(core, foreground, pending, backgroundActive) }.collect { refreshStandby() }
         }

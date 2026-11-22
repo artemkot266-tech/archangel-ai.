@@ -12,8 +12,8 @@ android {
         applicationId = "com.archangel.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.18.3"
+        versionCode = 27
+        versionName = "0.18.4"
     }
 
     // Постоянный debug-ключ в репозитории: каждая новая сборка ставится
