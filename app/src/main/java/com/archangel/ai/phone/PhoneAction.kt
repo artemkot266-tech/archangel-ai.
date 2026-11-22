@@ -26,8 +26,56 @@ sealed class PhoneAction {
     }
     /** Переход по разделам самого приложения. */
     data class Screen(val screen: AppScreen) : PhoneAction()
+
+    /** YouTube: query = null — сначала спросить, что искать. */
+    data class YouTube(val query: String?) : PhoneAction()
+    /** Музыка: app/query = null — уточнить у пользователя. Пустой query — «что угодно». */
+    data class Music(val app: MusicApp?, val query: String?) : PhoneAction()
+    /** Такси: destination = null — спросить, куда едем. */
+    data class Taxi(val destination: String?, val app: TaxiApp?) : PhoneAction()
+    /** Заметка: text = null — спросить, что записать. */
+    data class Note(val text: String?) : PhoneAction()
+    object ShowNotes : PhoneAction()
+    /** Напоминание: text/at = null — уточнить. at — время в миллисекундах. */
+    data class Reminder(val text: String?, val at: Long?) : PhoneAction()
+    object ShowReminders : PhoneAction()
 }
 
 enum class VolumeDir { UP, DOWN, MUTE, MAX }
 
-enum class AppScreen { CORE, CHAT, MARKET, SETTINGS }
+enum class AppScreen { CORE, CHAT, TASKS, MARKET, SETTINGS }
+
+/** Музыкальные приложения: как называем, пакет, понимает ли «играй по запросу». */
+enum class MusicApp(val title: String, val pkg: String, val playFromSearch: Boolean, val words: List<String>) {
+    YOUTUBE_MUSIC("YouTube Music", "com.google.android.apps.youtube.music", true,
+        listOf("ютуб музык", "youtube music", "ютюб музык", "yt music")),
+    SPOTIFY("Spotify", "com.spotify.music", true, listOf("спотифай", "spotify", "спотик", "спотифае")),
+    YANDEX("Яндекс Музыка", "ru.yandex.music", true, listOf("яндекс", "yandex")),
+    APPLE("Apple Music", "com.apple.android.music", true, listOf("эпл", "apple")),
+    DEEZER("Deezer", "deezer.android.app", true, listOf("дизер", "deezer")),
+    SOUNDCLOUD("SoundCloud", "com.soundcloud.android", true, listOf("саундклауд", "soundcloud")),
+    YOUTUBE("YouTube", "com.google.android.youtube", false, listOf("ютуб", "youtube", "ютюб")),
+    ;
+
+    companion object {
+        /** «в спотифае» → SPOTIFY. Длинные названия проверяем раньше коротких («ютуб музыка» раньше «ютуб»). */
+        fun fromText(s: String): MusicApp? {
+            val t = s.lowercase()
+            return entries.firstOrNull { app -> app.words.any { t.contains(it) } }
+        }
+    }
+}
+
+enum class TaxiApp(val title: String, val pkg: String, val words: List<String>) {
+    UKLON("Uklon", "ua.com.uklontaxi", listOf("уклон", "uklon")),
+    BOLT("Bolt", "ee.mtakso.client", listOf("болт", "bolt")),
+    UBER("Uber", "com.ubercab", listOf("убер", "uber")),
+    ;
+
+    companion object {
+        fun fromText(s: String): TaxiApp? {
+            val t = s.lowercase()
+            return entries.firstOrNull { app -> app.words.any { t.contains(it) } }
+        }
+    }
+}

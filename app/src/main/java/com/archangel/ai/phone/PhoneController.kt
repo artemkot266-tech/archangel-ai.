@@ -125,8 +125,72 @@ class PhoneController(private val context: Context) {
                 start(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(action.destination))))
             if (ok) "Прокладываю маршрут: ${action.destination}." else "Не нашёл приложение карт."
         }
-        // Эти действия обрабатывает само приложение (навигация и биржа).
-        is PhoneAction.Market, is PhoneAction.Order, is PhoneAction.Screen -> ""
+        is PhoneAction.YouTube -> youtube(action.query.orEmpty())
+        is PhoneAction.Music -> playMusic(action.app ?: MusicApp.YOUTUBE, action.query.orEmpty())
+        is PhoneAction.Taxi -> callTaxi(action.app ?: TaxiApp.UKLON, action.destination.orEmpty())
+        // Эти действия обрабатывает само приложение (разделы, биржа, заметки, напоминания).
+        is PhoneAction.Market, is PhoneAction.Order, is PhoneAction.Screen,
+        is PhoneAction.Note, PhoneAction.ShowNotes, is PhoneAction.Reminder, PhoneAction.ShowReminders -> ""
+    }
+
+    fun isInstalled(pkg: String): Boolean =
+        context.packageManager.getLaunchIntentForPackage(pkg) != null
+
+    fun installedMusicApps(): List<MusicApp> = MusicApp.entries.filter { isInstalled(it.pkg) }
+    fun installedTaxiApps(): List<TaxiApp> = TaxiApp.entries.filter { isInstalled(it.pkg) }
+
+    /** Поиск на YouTube: открывает результаты прямо в приложении YouTube. */
+    fun youtube(query: String): String {
+        if (query.isBlank()) {
+            val intent = context.packageManager.getLaunchIntentForPackage(MusicApp.YOUTUBE.pkg)
+            return if (intent != null && start(intent)) "Открываю YouTube." else "YouTube не установлен."
+        }
+        val url = "https://www.youtube.com/results?search_query=" + Uri.encode(query)
+        val inApp = Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage(MusicApp.YOUTUBE.pkg)
+        val ok = (isInstalled(MusicApp.YOUTUBE.pkg) && start(inApp)) || start(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        return if (ok) "Ищу на YouTube: $query." else "Не получилось открыть YouTube."
+    }
+
+    /** Музыка: приложения, которые понимают «играй по запросу», сразу начинают играть. */
+    fun playMusic(app: MusicApp, query: String): String {
+        if (!isInstalled(app.pkg)) return "${app.title} не установлен."
+        val q = query.ifBlank { "" }
+        if (app == MusicApp.YOUTUBE) return youtube(q.ifBlank { "музыка микс" })
+        if (app.playFromSearch) {
+            val intent = Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
+                .setPackage(app.pkg)
+                .putExtra(SearchManager.QUERY, q)
+                .putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+            if (start(intent)) return if (q.isBlank()) "Включаю музыку в ${app.title}." else "Включаю в ${app.title}: $q."
+        }
+        // Запасной путь: просто открыть приложение
+        val launch = context.packageManager.getLaunchIntentForPackage(app.pkg)
+        return if (launch != null && start(launch)) "Открыл ${app.title}" + (if (q.isNotBlank()) " — найдите «$q»." else ".")
+        else "Не получилось открыть ${app.title}."
+    }
+
+    /**
+     * Такси. Uber умеет принимать адрес назначения ссылкой; Uklon и Bolt — нет,
+     * поэтому адрес копируется в буфер, чтобы вставить его одним касанием.
+     */
+    fun callTaxi(app: TaxiApp, destination: String): String {
+        if (!isInstalled(app.pkg)) return "${app.title} не установлен."
+        if (app == TaxiApp.UBER && destination.isNotBlank()) {
+            val url = "https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=" +
+                Uri.encode(destination)
+            if (start(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage(app.pkg))) return "Открываю Uber до «$destination»."
+        }
+        if (destination.isNotBlank()) {
+            runCatching {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Адрес", destination))
+            }
+        }
+        val launch = context.packageManager.getLaunchIntentForPackage(app.pkg)
+        return if (launch != null && start(launch)) {
+            if (destination.isNotBlank()) "Открываю ${app.title}. Адрес «$destination» скопирован — вставьте его в поле «Куда»."
+            else "Открываю ${app.title}."
+        } else "Не получилось открыть ${app.title}."
     }
 
     private val appAliases = mapOf(

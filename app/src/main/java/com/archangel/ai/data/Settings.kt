@@ -63,6 +63,11 @@ data class AppSettings(
     val elevenVoiceId: String = DEFAULT_ELEVEN_VOICE,
     // Знакомство
     val userName: String = "",
+    /** Как пользователь зовёт ассистента голосом («Архангел», «Джарвис»…). */
+    val wakeName: String = "Архангел",
+    /** Последнее выбранное музыкальное приложение и такси — предлагаются первыми. */
+    val musicApp: String = "",
+    val taxiApp: String = "",
     val onboardingDone: Boolean = false,
     val greetOnLaunch: Boolean = true,
     // Биржа
@@ -114,6 +119,9 @@ class SettingsStore(context: Context) {
             elevenVoiceId = prefs.getString("eleven_voice", null)?.takeIf { it.isNotBlank() }
                 ?: AppSettings.DEFAULT_ELEVEN_VOICE,
             userName = prefs.getString("user_name", "") ?: "",
+            wakeName = prefs.getString("wake_name", null)?.takeIf { it.isNotBlank() } ?: "Архангел",
+            musicApp = prefs.getString("music_app", "") ?: "",
+            taxiApp = prefs.getString("taxi_app", "") ?: "",
             onboardingDone = prefs.getBoolean("onboarding_done", false),
             greetOnLaunch = prefs.getBoolean("greet", true),
             binanceKey = SecretBox.decrypt(prefs.getString("bn_key", "") ?: ""),
@@ -128,6 +136,7 @@ class SettingsStore(context: Context) {
             elevenKey = s.elevenKey.trim(),
             elevenVoiceId = s.elevenVoiceId.trim().ifBlank { AppSettings.DEFAULT_ELEVEN_VOICE },
             userName = s.userName.trim(),
+            wakeName = s.wakeName.trim().ifBlank { "Архангел" },
             binanceKey = s.binanceKey.trim(),
             binanceSecret = s.binanceSecret.trim(),
         )
@@ -148,6 +157,9 @@ class SettingsStore(context: Context) {
             putString("eleven_key", SecretBox.encrypt(clean.elevenKey))
             putString("eleven_voice", clean.elevenVoiceId)
             putString("user_name", clean.userName)
+            putString("wake_name", clean.wakeName)
+            putString("music_app", clean.musicApp)
+            putString("taxi_app", clean.taxiApp)
             putBoolean("onboarding_done", clean.onboardingDone)
             putBoolean("greet", clean.greetOnLaunch)
             putString("bn_key", SecretBox.encrypt(clean.binanceKey))

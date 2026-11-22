@@ -67,6 +67,7 @@ import com.archangel.ai.ui.screens.ChatScreen
 import com.archangel.ai.ui.screens.CoreScreen
 import com.archangel.ai.ui.screens.MarketScreen
 import com.archangel.ai.ui.screens.OnboardingScreen
+import com.archangel.ai.ui.screens.TasksScreen
 import com.archangel.ai.ui.screens.SettingsScreen
 import com.archangel.ai.ui.screens.lastAssistantReply
 import com.archangel.ai.ui.theme.Ash
@@ -114,6 +115,17 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
     }
     val phoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         vm.confirmPending()
+    }
+
+    // Уведомления нужны для напоминаний (Android 13+ спрашивает разрешение)
+    val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(vm.needNotificationPermission) {
+        if (vm.needNotificationPermission) {
+            vm.needNotificationPermission = false
+            if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     // ── Команды от ассистента
@@ -200,6 +212,15 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
                         onSend = { vm.send(vm.draft) },
                         onMic = { listen() },
                     )
+                    AppScreen.TASKS -> TasksScreen(
+                        notes = vm.notes,
+                        reminders = vm.reminders,
+                        onRefresh = { vm.refreshTasks() },
+                        onAddNote = { vm.addNote(it) },
+                        onDeleteNote = { vm.deleteNote(it) },
+                        onDeleteReminder = { vm.deleteReminder(it) },
+                        onSay = { vm.send(it) },
+                    )
                     AppScreen.MARKET -> MarketScreen(
                         vm = market,
                         settings = settings,
@@ -240,6 +261,7 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
 private val dockItems = listOf(
     AppScreen.CORE to "Ядро",
     AppScreen.CHAT to "Диалог",
+    AppScreen.TASKS to "Дела",
     AppScreen.MARKET to "Рынок",
     AppScreen.SETTINGS to "Настройки",
 )

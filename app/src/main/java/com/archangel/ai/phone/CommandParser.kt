@@ -1,6 +1,9 @@
 package com.archangel.ai.phone
 
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 /**
  * Быстрый разбор голосовых команд прямо на телефоне — работает без ИИ и без интернета.
@@ -30,23 +33,34 @@ object CommandParser {
         val w = word.lowercase().trim().trim('.', ',', '?', '!')
         if (w.isEmpty()) return null
         coins[w]?.let { return it + "USDT" }
-        // Падежи: «биткоина», «эфира», «солану»
         coins.entries.firstOrNull { (k, _) ->
             k.length >= 4 && k.first() in 'а'..'я' && w.startsWith(k.dropLast(1)) && w.length - k.length <= 3
-        }
-            ?.let { return it.value + "USDT" }
-        // Уже тикер: «BTCUSDT» или «btc/usdt»
+        }?.let { return it.value + "USDT" }
         val t = w.uppercase().replace("/", "").replace("-", "")
         if (t.matches(Regex("[A-Z0-9]{2,10}USDT"))) return t
         return null
     }
 
-    fun parse(raw: String): PhoneAction? {
-        val s = raw.lowercase()
-            .replace('ё', 'е')
-            .trim()
-            .trimEnd('.', '!', '?')
-            .removePrefix("архангел").trim(' ', ',')
+    /** Убирает обращение в начале: «Архангел, …», «Джарвис …». */
+    fun stripWakeName(s: String, wakeNames: List<String>): String {
+        var t = s
+        for (n in wakeNames.map { it.lowercase().trim() }.filter { it.isNotEmpty() }.sortedByDescending { it.length }) {
+            if (t.startsWith(n)) {
+                t = t.removePrefix(n).trim(' ', ',', '.', '!')
+                break
+            }
+        }
+        return t
+    }
+
+    fun normalize(raw: String, wakeNames: List<String> = listOf("архангел")): String =
+        stripWakeName(
+            raw.lowercase().replace('ё', 'е').trim().trimEnd('.', '!', '?'),
+            wakeNames + "архангел",
+        )
+
+    fun parse(raw: String, wakeNames: List<String> = listOf("архангел"), now: Calendar = Calendar.getInstance()): PhoneAction? {
+        val s = normalize(raw, wakeNames)
         if (s.isEmpty()) return null
 
         // Разделы приложения
@@ -54,6 +68,49 @@ object CommandParser {
             ?.let { return PhoneAction.Screen(AppScreen.MARKET) }
         Regex("^(открой|покажи)\\s+(настройки архангела|настройки приложения)$").find(s)
             ?.let { return PhoneAction.Screen(AppScreen.SETTINGS) }
+
+        // Заметки и напоминания
+        Regex("^(покажи|прочитай|открой|какие)\\s+(у меня\\s+)?(мои\\s+)?заметки").find(s)?.let { return PhoneAction.ShowNotes }
+        Regex("^(покажи|прочитай|открой|какие)\\s+(у меня\\s+)?(мои\\s+)?напоминания").find(s)?.let { return PhoneAction.ShowReminders }
+        Regex("^(запиши|сделай|создай|добавь|новая)\\s+(мне\\s+)?(заметку|запись|заметка)\\s*[:,]?\\s*(.*)$").find(s)?.let {
+            return PhoneAction.Note(it.groupValues[4].trim().ifEmpty { null })
+        }
+        Regex("^(заметка|запиши)\\s*[:,]?\\s+(.+)$").find(s)?.let { return PhoneAction.Note(it.groupValues[2].trim()) }
+        Regex("^(напомни|напоминание|поставь напоминание)(\\s+мне)?\\s*[:,]?\\s*(.*)$").find(s)?.let {
+            val (at, rest) = parseWhen(it.groupValues[3], now)
+            return PhoneAction.Reminder(cleanReminderText(rest), at)
+        }
+
+        // Такси: «вызови такси до вокзала через уклон»
+        Regex("^(вызови|закажи|вызвать|заказать|нужно|нужно такси)\\s+(мне\\s+)?такси\\s*(.*)$").find(s)?.let {
+            var rest = it.groupValues[3]
+            val app = TaxiApp.fromText(rest)
+            rest = rest.replace(Regex("(через|в|на)\\s+(уклон|uklon|болт|bolt|убер|uber)\\w*"), "").trim()
+            val dest = Regex("^(до|в|на|к|ко)\\s+(.+)$").find(rest)?.groupValues?.get(2)?.trim()
+            return PhoneAction.Taxi(dest?.ifEmpty { null }, app)
+        }
+
+        // Музыка: «включи музыку», «поставь музыку в спотифае», «включи imagine dragons в спотифай»
+        Regex("^(включи|поставь|запусти|играй|сыграй|давай)\\s+(мне\\s+)?(музыку|музон|песню|песни|трек|плейлист|радио)\\s*(.*)$").find(s)?.let {
+            val rest = it.groupValues[4].trim()
+            val app = MusicApp.fromText(rest)
+            val q = stripAppMention(rest).ifEmpty { null }
+            return PhoneAction.Music(app, q)
+        }
+        Regex("^(включи|поставь|запусти|играй)\\s+(.+?)\\s+(в|на|через)\\s+(спотифа\\w*|spotify|ютуб музык\\w*|youtube music|яндекс музык\\w*|саундклауд\\w*|soundcloud|дизер\\w*|deezer)$").find(s)?.let {
+            return PhoneAction.Music(MusicApp.fromText(it.groupValues[4]), it.groupValues[2].trim())
+        }
+
+        // YouTube: «открой ютуб», «включи на ютубе гайд по доте 2», «найди на ютубе …»
+        Regex("^(открой|запусти|включи|найди|покажи|поставь)?\\s*(мне\\s+)?(на\\s+|в\\s+)?(ютуб|youtube|ютюб)\\w*\\s*(.*)$").find(s)?.let {
+            val verb = it.groupValues[1]
+            val rest = it.groupValues[5].trim()
+            if (rest.startsWith("музык")) return PhoneAction.Music(MusicApp.YOUTUBE_MUSIC, null)
+            if (verb.isNotEmpty() || it.groupValues[3].isNotEmpty() || s.startsWith("ютуб") || s.startsWith("youtube")) {
+                val q = rest.removePrefix("и ").removePrefix("найди ").removePrefix("включи ").trim()
+                return PhoneAction.YouTube(q.ifEmpty { null })
+            }
+        }
 
         // Звонок
         Regex("^(позвони|набери|звони|вызови)\\s+(.+)$").find(s)?.let {
@@ -131,6 +188,105 @@ object CommandParser {
         return null
     }
 
+    /** «imagine dragons в спотифае» → «imagine dragons». */
+    fun stripAppMention(s: String): String =
+        s.replace(Regex("\\s*(в|на|через)\\s+(спотифа\\w*|spotify|ютуб\\w*\\s*музык\\w*|youtube music|ютуб\\w*|youtube|яндекс\\s*музык\\w*|яндекс\\w*|эпл\\w*|apple music|дизер\\w*|deezer|саундклауд\\w*|soundcloud)\\s*$"), "")
+            .trim()
+
+    /** Ответ на уточняющий вопрос: «включи гайд по доте» → «гайд по доте». */
+    fun cleanAnswer(raw: String, wakeNames: List<String> = emptyList()): String {
+        var s = normalize(raw, wakeNames)
+        val lead = Regex("^(давай|пожалуйста|ну|хочу|найди|включи|поставь|открой|покажи|запусти|в|на|про|это)\\s+")
+        repeat(3) { s = s.replace(lead, "") }
+        return s.trim()
+    }
+
+    /** «что угодно», «любую», «на твой вкус» — пользователь доверил выбор. */
+    fun isAnything(s: String) =
+        Regex("(что угодно|любую|любое|любой|на твой вкус|на свой вкус|без разницы|неважно|что-нибудь|что нибудь)").containsMatchIn(s.lowercase())
+
+    fun isCancel(s: String) =
+        Regex("^(отмена|отмени|не надо|ничего|стоп|забудь|неважно, отмена|не нужно)").containsMatchIn(s.lowercase().trim())
+
+    // ───────────── Время для напоминаний ─────────────
+
+    private fun cleanReminderText(s: String): String? =
+        s.trim(' ', ',', '.', ':')
+            .replace(Regex("^(о том,?\\s+что|о том,?\\s+чтобы|что|чтобы|про|о|об)\\s+"), "")
+            .trim()
+            .ifEmpty { null }
+
+    /**
+     * Ищет время в фразе и возвращает (момент в мс или null, остаток текста).
+     * Понимает: «через 20 минут», «через час», «через полчаса», «в 18:30», «завтра в 9 утра»,
+     * «сегодня в 7 вечера», «послезавтра», «завтра».
+     */
+    fun parseWhen(text: String, now: Calendar = Calendar.getInstance()): Pair<Long?, String> {
+        var s = " ${text.lowercase().replace('ё', 'е')} "
+        Regex("\\s+через\\s+(\\d+|пару|полчаса|час|минуту)\\s*(секунд\\w*|сек|минут\\w*|мин|час\\w*|ч)?\\s+").find(s)?.let { m ->
+            val nRaw = m.groupValues[1]
+            val unit = m.groupValues[2]
+            val minutes = when {
+                nRaw == "полчаса" -> 30
+                nRaw == "час" -> 60
+                nRaw == "минуту" -> 1
+                nRaw == "пару" -> if (unit.startsWith("час")) 120 else 2
+                unit.startsWith("сек") -> 0
+                unit.startsWith("час") || unit == "ч" -> nRaw.toInt() * 60
+                else -> nRaw.toInt()
+            }
+            val seconds = if (unit.startsWith("сек")) nRaw.toIntOrNull() ?: 0 else minutes * 60
+            val c = now.clone() as Calendar
+            c.add(Calendar.SECOND, seconds)
+            s = s.replace(m.value, " ")
+            return c.timeInMillis to s.trim()
+        }
+        val day = Regex("\\s(сегодня|завтра|послезавтра)\\s").find(s)?.groupValues?.get(1)
+        val timeM = Regex("\\s(?:в|на)\\s+(\\d{1,2})(?:[:. ](\\d{2}))?\\s*(утра|дня|вечера|ночи|часов|час|часа)?\\s").find(s)
+        if (day == null && timeM == null) return null to text.trim()
+        val c = now.clone() as Calendar
+        c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
+        var hour = 9
+        var minute = 0
+        if (timeM != null) {
+            hour = timeM.groupValues[1].toInt()
+            minute = timeM.groupValues[2].toIntOrNull() ?: 0
+            when (timeM.groupValues[3]) {
+                "дня" -> if (hour in 1..11) hour += 12
+                "вечера" -> if (hour in 1..11) hour += 12
+                "ночи" -> if (hour == 12) hour = 0
+            }
+            if (hour !in 0..23 || minute !in 0..59) return null to text.trim()
+            s = s.replace(timeM.value, " ")
+        }
+        when (day) {
+            "завтра" -> c.add(Calendar.DAY_OF_YEAR, 1)
+            "послезавтра" -> c.add(Calendar.DAY_OF_YEAR, 2)
+        }
+        if (day != null) s = s.replace(Regex("\\s$day\\s"), " ")
+        c.set(Calendar.HOUR_OF_DAY, hour)
+        c.set(Calendar.MINUTE, minute)
+        // «в 7» без дня, а 7 уже прошло — значит, завтра
+        if (day == null && c.timeInMillis <= now.timeInMillis) c.add(Calendar.DAY_OF_YEAR, 1)
+        return c.timeInMillis to s.trim()
+    }
+
+    /** «завтра в 09:00», «сегодня в 18:30», «22 ноября в 10:00». */
+    fun describeTime(at: Long, now: Calendar = Calendar.getInstance()): String {
+        val c = Calendar.getInstance().apply { timeInMillis = at }
+        val time = SimpleDateFormat("HH:mm", Locale.US).format(c.time)
+        val today = now.get(Calendar.DAY_OF_YEAR) == c.get(Calendar.DAY_OF_YEAR) && now.get(Calendar.YEAR) == c.get(Calendar.YEAR)
+        val tomorrow = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
+            .let { it.get(Calendar.DAY_OF_YEAR) == c.get(Calendar.DAY_OF_YEAR) && it.get(Calendar.YEAR) == c.get(Calendar.YEAR) }
+        return when {
+            today -> "сегодня в $time"
+            tomorrow -> "завтра в $time"
+            else -> SimpleDateFormat("d MMMM 'в' HH:mm", Locale("ru")).format(c.time)
+        }
+    }
+
+    // ───────────── Теги действий от ИИ ─────────────
+
     private val tagRegex = Regex("\\[\\[ACTION\\s*(\\{.*?\\})\\s*]]", RegexOption.DOT_MATCHES_ALL)
 
     /** Убирает тег действия из ответа ИИ и возвращает (чистый текст, действие). */
@@ -142,6 +298,7 @@ object CommandParser {
 
     fun parseActionTag(json: String): PhoneAction? = try {
         val o = JSONObject(json)
+        fun str(k: String) = o.optString(k).trim().ifEmpty { null }
         when (o.optString("type")) {
             "call" -> PhoneAction.Call(o.getString("target"))
             "sms" -> PhoneAction.Sms(o.getString("target"), o.optString("text"))
@@ -162,6 +319,14 @@ object CommandParser {
                 symbol = o.getString("symbol").uppercase(),
                 usdt = o.getDouble("usdt"),
             ).takeIf { it.usdt > 0 }
+            "youtube" -> PhoneAction.YouTube(str("query"))
+            "music" -> PhoneAction.Music(str("app")?.let { MusicApp.fromText(it) }, if (o.has("query")) o.optString("query") else null)
+            "taxi" -> PhoneAction.Taxi(str("destination"), str("app")?.let { TaxiApp.fromText(it) })
+            "note" -> PhoneAction.Note(str("text"))
+            "reminder" -> PhoneAction.Reminder(
+                str("text"),
+                str("at")?.let { runCatching { SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).parse(it)?.time }.getOrNull() },
+            )
             else -> null
         }
     } catch (e: Exception) {
@@ -182,8 +347,15 @@ object CommandParser {
 {"type":"volume","dir":"up|down|mute|max"}
 {"type":"search","query":"запрос"}
 {"type":"navigate","destination":"адрес или место"}
+{"type":"youtube","query":"что найти"}
+{"type":"music","app":"spotify|youtube music|youtube|яндекс","query":"что включить"}
+{"type":"taxi","destination":"куда","app":"uklon|bolt|uber"}
+{"type":"note","text":"текст заметки"}
+{"type":"reminder","text":"о чём","at":"2026-01-31T09:00"}
 {"type":"market","symbol":"BTCUSDT"}
 {"type":"order","side":"BUY|SELL","symbol":"BTCUSDT","usdt":20}
+Если для действия не хватает данных (что искать, что включить, куда ехать, когда напомнить) — НЕ добавляй тег,
+а коротко задай один уточняющий вопрос. Поля, которых пользователь не назвал, просто не указывай.
 Звонки, SMS и сделки пользователь подтверждает сам — не утверждай, что действие уже выполнено.
 Если действие не нужно — тег не добавляй.
 """.trimIndent()

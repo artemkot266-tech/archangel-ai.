@@ -24,5 +24,6 @@ class ArchangelApp : Application() {
         settings = SettingsStore(this)
         chatStore = ChatStore(this)
         phone = PhoneController(this)
+        com.archangel.ai.tasks.ReminderScheduler.ensureChannel(this)
     }
 }

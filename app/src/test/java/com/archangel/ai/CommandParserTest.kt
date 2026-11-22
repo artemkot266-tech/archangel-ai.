@@ -3,7 +3,10 @@ package com.archangel.ai
 import com.archangel.ai.phone.AppScreen
 import com.archangel.ai.phone.CommandParser
 import com.archangel.ai.phone.PhoneAction
+import com.archangel.ai.phone.MusicApp
+import com.archangel.ai.phone.TaxiApp
 import com.archangel.ai.phone.VolumeDir
+import java.util.Calendar
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -55,4 +58,50 @@ class CommandParserTest {
         assertEquals("Просто ответ", text)
         assertNull(action)
     }
+
+    // ───── v0.10: YouTube, музыка, такси, заметки, напоминания, имя для вызова
+
+    @Test fun youtubeAsks() = assertEquals(PhoneAction.YouTube(null), p("Открой ютуб"))
+    @Test fun youtubeQuery() = assertEquals(PhoneAction.YouTube("гайд по доте 2"), p("включи на ютубе гайд по доте 2"))
+    @Test fun youtubeFind() = assertEquals(PhoneAction.YouTube("как приготовить борщ"), p("найди на ютубе как приготовить борщ"))
+    @Test fun musicAsks() = assertEquals(PhoneAction.Music(null, null), p("Архангел, включи музыку"))
+    @Test fun musicInApp() = assertEquals(PhoneAction.Music(MusicApp.SPOTIFY, null), p("включи музыку в спотифае"))
+    @Test fun musicArtistInApp() =
+        assertEquals(PhoneAction.Music(MusicApp.SPOTIFY, "imagine dragons"), p("включи imagine dragons в спотифай"))
+    @Test fun musicOnYoutube() = assertEquals(PhoneAction.Music(MusicApp.YOUTUBE, null), p("поставь музыку на ютубе"))
+    @Test fun taxiAsks() = assertEquals(PhoneAction.Taxi(null, null), p("вызови такси"))
+    @Test fun taxiFull() = assertEquals(PhoneAction.Taxi("вокзала", TaxiApp.UKLON), p("вызови такси до вокзала через уклон"))
+    @Test fun noteAsks() = assertEquals(PhoneAction.Note(null), p("запиши заметку"))
+    @Test fun noteText() = assertEquals(PhoneAction.Note("купить молоко"), p("запиши заметку: купить молоко"))
+    @Test fun showNotes() = assertEquals(PhoneAction.ShowNotes, p("покажи мои заметки"))
+    @Test fun customWakeName() = assertEquals(PhoneAction.Music(null, null), CommandParser.parse("Джарвис, включи музыку", listOf("Джарвис")))
+
+    private fun now(): Calendar = Calendar.getInstance().apply {
+        set(2026, Calendar.NOVEMBER, 22, 14, 0, 0); set(Calendar.MILLISECOND, 0)
+    }
+
+    @Test fun reminderTomorrow() {
+        val a = CommandParser.parse("Напомни завтра в 9 позвонить в сервис", now = now()) as PhoneAction.Reminder
+        assertEquals("позвонить в сервис", a.text)
+        val c = Calendar.getInstance().apply { timeInMillis = a.at!! }
+        assertEquals(23, c.get(Calendar.DAY_OF_MONTH)); assertEquals(9, c.get(Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun reminderIn20Minutes() {
+        val a = CommandParser.parse("напомни через 20 минут выключить плиту", now = now()) as PhoneAction.Reminder
+        assertEquals("выключить плиту", a.text)
+        assertEquals(now().timeInMillis + 20 * 60_000, a.at)
+    }
+
+    @Test fun reminderEvening() {
+        val a = CommandParser.parse("напомни в 7 вечера что надо забрать посылку", now = now()) as PhoneAction.Reminder
+        assertEquals("надо забрать посылку", a.text)
+        val c = Calendar.getInstance().apply { timeInMillis = a.at!! }
+        assertEquals(22, c.get(Calendar.DAY_OF_MONTH)); assertEquals(19, c.get(Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun reminderNoTime() = assertEquals(PhoneAction.Reminder("купить хлеб", null), p("напомни купить хлеб"))
+    @Test fun reminderAsks() = assertEquals(PhoneAction.Reminder(null, null), p("напомни"))
+    @Test fun answerCleanup() = assertEquals("гайд по доте 2", CommandParser.cleanAnswer("Включи гайд по доте 2"))
+    @Test fun anything() = assertTrue(CommandParser.isAnything("да что угодно"))
 }

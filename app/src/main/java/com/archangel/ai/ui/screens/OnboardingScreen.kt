@@ -146,6 +146,8 @@ fun OnboardingScreen(
                 0 -> Welcome()
                 1 -> Features()
                 2 -> NameStep(
+                    wakeName = draft.wakeName,
+                    onWakeName = { draft = draft.copy(wakeName = it) },
                     name = draft.userName,
                     listening = vm.core == com.archangel.ai.core.CoreState.LISTENING,
                     partial = vm.partial,
@@ -195,9 +197,12 @@ private fun lineFor(step: Int, name: String): String = when (step) {
     1 -> "Я понимаю голос и отвечаю голосом. Могу позвонить, написать сообщение, поставить будильник " +
         "или таймер, открыть приложение и проложить маршрут. Слежу за рынком, показываю графики и делаю разбор. " +
         "Звонки и сделки выполняю только с вашего подтверждения."
-    2 -> "Как мне к вам обращаться? Напишите имя или нажмите на микрофон и скажите его."
-    3 -> (if (name.isNotBlank()) "$name, ч" else "Ч") + "тобы думать и отвечать, мне нужен мозг — ключ одной " +
-        "из нейросетей. Есть бесплатные варианты: Groq, Gemini или OpenRouter. Выберите любой, я подскажу, что делать."
+    2 -> "Меня зовут Архангел. Но если вам удобнее другое имя — впишите его, буду откликаться и на него. " +
+        "А как мне обращаться к вам? Напишите имя или нажмите на микрофон и скажите его."
+    3 -> (if (name.isNotBlank()) "$name, ч" else "Ч") + "тобы свободно разговаривать и понимать сложные просьбы, " +
+        "мне нужен мозг — ключ одной из нейросетей. Без него я выполняю команды телефона, но не веду беседу. " +
+        "Бесплатные варианты — Groq, Gemini и OpenRouter — подойдут для начала, но у них дневные лимиты. " +
+        "Платные — DeepSeek и Claude — умнее и стабильнее, а стоят копейки за запрос. Выберите любой, я подскажу, что делать."
     4 -> "Теперь выберем мой голос. Нажмите «Послушать», чтобы сравнить варианты."
     else -> "Всё готово" + (if (name.isNotBlank()) ", $name" else "") +
         ". Нажмите на сферу и говорите. Я к вашим услугам."
@@ -252,6 +257,8 @@ private fun Features() {
 
 @Composable
 private fun NameStep(
+    wakeName: String,
+    onWakeName: (String) -> Unit,
     name: String,
     listening: Boolean,
     partial: String,
@@ -285,6 +292,36 @@ private fun NameStep(
     }
     Spacer(Modifier.height(10.dp))
     Text("Можно имя, отчество или «сэр» — как вам приятнее.", style = TextStyles.BodySmall)
+
+    Spacer(Modifier.height(28.dp))
+    Text("А как звать меня?", style = TextStyles.Title)
+    Spacer(Modifier.height(6.dp))
+    Text(
+        "Меня зовут Архангел. Если вам удобнее другое имя — например, Джарвис или Пятница, — " +
+            "впишите его: я буду откликаться и на него. Говорите: «$wakeName, включи музыку».",
+        style = TextStyles.BodySmall,
+    )
+    Spacer(Modifier.height(10.dp))
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .background(Surface1, RoundedCornerShape(16.dp))
+            .border(1.dp, Hairline, RoundedCornerShape(16.dp))
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+    ) {
+        BasicTextField(
+            value = wakeName,
+            onValueChange = { onWakeName(it.take(24)) },
+            singleLine = true,
+            textStyle = TextStyles.Body,
+            cursorBrush = SolidColor(Ember),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    Spacer(Modifier.height(8.dp))
+    Text("Сейчас я отвечаю на касание сферы. Вызов по имени без касания — в режиме ожидания (появится в настройках).", style = TextStyles.Label.copy(color = Smoke))
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -299,6 +336,44 @@ private fun BrainStep(draft: AppSettings, onChange: (AppSettings) -> Unit, onTes
     Text("Подключим\nмой мозг.", style = TextStyles.Display)
     Spacer(Modifier.height(8.dp))
     Text("Нужен ключ одной нейросети. Начните с бесплатного — сменить можно в любой момент.", style = TextStyles.BodySmall)
+
+    Spacer(Modifier.height(16.dp))
+    Panel(Modifier.fillMaxWidth()) {
+        Column {
+            Text("Зачем мне ключ", style = TextStyles.Title.copy(fontSize = 18.sp))
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Ключ — это пропуск к нейросети, которая думает за меня. Он привязан к вашему аккаунту " +
+                    "на сайте нейросети и хранится зашифрованным только на этом телефоне.",
+                style = TextStyles.BodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            MonoLabel("Работает и без ключа", color = Bone)
+            Text(
+                "Звонки, SMS, будильник, таймер, фонарик, громкость, YouTube, музыка, такси, заметки, " +
+                    "напоминания, графики рынка и сделки.",
+                style = TextStyles.BodySmall,
+            )
+            Spacer(Modifier.height(10.dp))
+            MonoLabel("Станет доступно с ключом", color = Bone)
+            Text(
+                "Живой разговор и ответы на любые вопросы. Сложные просьбы своими словами — " +
+                    "«разбуди меня за час до поезда», «напомни купить подарок в пятницу». ИИ-разбор рынка. " +
+                    "Помощь с текстами, переводами, расчётами.",
+                style = TextStyles.BodySmall,
+            )
+            Spacer(Modifier.height(10.dp))
+            MonoLabel("Бесплатный или платный", color = Bone)
+            Text(
+                "Бесплатные (Groq, Gemini, OpenRouter) — хороший старт, но у них дневные лимиты запросов, " +
+                    "модели иногда меняются, а ответы бывают проще. Платные (DeepSeek, Claude) — умнее, " +
+                    "стабильнее и без дневных лимитов; оплата за фактическое использование: обычные вопросы " +
+                    "стоят доли цента, пополнить можно на несколько долларов. Claude — самый умный, " +
+                    "DeepSeek — самый дешёвый.",
+                style = TextStyles.BodySmall,
+            )
+        }
+    }
 
     Spacer(Modifier.height(18.dp))
     MonoLabel("Бесплатно")

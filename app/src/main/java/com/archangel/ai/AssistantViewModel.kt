@@ -19,6 +19,12 @@ import com.archangel.ai.phone.AppScreen
 import com.archangel.ai.phone.CommandParser
 import com.archangel.ai.phone.PhoneAction
 import com.archangel.ai.phone.PhoneController
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import com.archangel.ai.phone.MusicApp
+import com.archangel.ai.phone.TaxiApp
+import com.archangel.ai.tasks.TaskStore
 import com.archangel.ai.voice.Speaker
 import com.archangel.ai.voice.VoiceOption
 import com.archangel.ai.voice.SpeechInput
@@ -97,9 +103,126 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     private val speaker = Speaker(
         context = app,
         onStart = { core = CoreState.SPEAKING },
-        onDone = { if (core == CoreState.SPEAKING) core = CoreState.IDLE },
+        onDone = {
+            if (core == CoreState.SPEAKING) core = CoreState.IDLE
+            // Задали уточняющий вопрос голосом — сразу слушаем ответ
+            if (autoListen) {
+                autoListen = false
+                listenIfAllowed()
+            }
+        },
         onVoicesReady = { voiceOptions = it },
     )
+
+    // ───────────── Уточняющие вопросы ─────────────
+
+    /** Чего ждём от пользователя после уточняющего вопроса. */
+    private sealed class Ask {
+        object YouTubeQuery : Ask()
+        data class MusicAppQ(val query: String?) : Ask()
+        data class MusicQuery(val app: MusicApp) : Ask()
+        data class TaxiDest(val app: TaxiApp?) : Ask()
+        data class TaxiAppQ(val dest: String) : Ask()
+        object NoteText : Ask()
+        data class ReminderText(val at: Long?) : Ask()
+        data class ReminderTime(val text: String) : Ask()
+    }
+
+    private var awaiting: Ask? = null
+    private var autoListen = false
+
+    /** Разговор голосом: после вопроса автоматически включаем микрофон. */
+    private fun listenIfAllowed() {
+        val granted = ContextCompat.checkSelfPermission(graph, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) startListening()
+    }
+
+    private fun ask(a: Ask, question: String, viaVoice: Boolean) {
+        awaiting = a
+        add(Role.ASSISTANT, question)
+        val s = settings.value
+        if (s.speakReplies && speaker.speak(question, s)) {
+            core = CoreState.SPEAKING
+            autoListen = viaVoice
+        } else {
+            core = CoreState.IDLE
+            if (viaVoice) listenIfAllowed()
+        }
+    }
+
+    private fun isYes(t: String) =
+        Regex("^(да|ага|угу|давай|ок|окей|как в прошлый раз|туда же|там же|как обычно|верно)").containsMatchIn(t.lowercase().trim())
+
+    /** @return true, если фраза была ответом на уточняющий вопрос. */
+    private fun resolveAwaiting(text: String, viaVoice: Boolean): Boolean {
+        val a = awaiting ?: return false
+        awaiting = null
+        if (CommandParser.isCancel(text)) {
+            reply("Хорошо, отменил.", viaVoice)
+            return true
+        }
+        val ans = CommandParser.cleanAnswer(text, wakeNames())
+        val s = settings.value
+        when (a) {
+            Ask.YouTubeQuery ->
+                if (ans.isEmpty()) reply(graph.phone.youtube(""), viaVoice)
+                else handle(PhoneAction.YouTube(ans), viaVoice)
+            is Ask.MusicAppQ -> {
+                val last = MusicApp.entries.firstOrNull { it.name == s.musicApp }
+                val app = MusicApp.fromText(text) ?: if (isYes(text)) last else null
+                if (app == null) {
+                    val list = graph.phone.installedMusicApps().joinToString(", ") { it.title }
+                    ask(Ask.MusicAppQ(a.query), "Не расслышал приложение. Доступны: $list. Какое?", viaVoice)
+                } else handle(PhoneAction.Music(app, a.query), viaVoice)
+            }
+            is Ask.MusicQuery ->
+                handle(PhoneAction.Music(a.app, if (CommandParser.isAnything(text)) "" else CommandParser.stripAppMention(ans)), viaVoice)
+            is Ask.TaxiDest -> handle(PhoneAction.Taxi(ans.removePrefix("до ").removePrefix("в ").ifEmpty { null }, a.app), viaVoice)
+            is Ask.TaxiAppQ -> {
+                val last = TaxiApp.entries.firstOrNull { it.name == s.taxiApp }
+                val app = TaxiApp.fromText(text) ?: if (isYes(text)) last else null
+                if (app == null) {
+                    val list = graph.phone.installedTaxiApps().joinToString(", ") { it.title }
+                    ask(Ask.TaxiAppQ(a.dest), "Какое приложение: $list?", viaVoice)
+                } else handle(PhoneAction.Taxi(a.dest, app), viaVoice)
+            }
+            Ask.NoteText -> handle(PhoneAction.Note(CommandParser.stripWakeName(text.trim(), wakeNames()).ifEmpty { null }), viaVoice)
+            is Ask.ReminderText -> handle(PhoneAction.Reminder(text.trim().ifEmpty { null }, a.at), viaVoice)
+            is Ask.ReminderTime -> {
+                val (at, _) = CommandParser.parseWhen(" $text ")
+                if (at == null) ask(a, "Не понял время. Скажите, например: «завтра в 9» или «через 20 минут».", viaVoice)
+                else handle(PhoneAction.Reminder(a.text, at), viaVoice)
+            }
+        }
+        return true
+    }
+
+    private fun wakeNames() = listOf(settings.value.wakeName, "архангел")
+
+    // ───────────── Заметки и напоминания ─────────────
+
+    private val tasks = TaskStore(app)
+    var notes by mutableStateOf(tasks.notes())
+        private set
+    var reminders by mutableStateOf(tasks.reminders())
+        private set
+    /** UI запрашивает разрешение на уведомления, когда появилось первое напоминание. */
+    var needNotificationPermission by mutableStateOf(false)
+
+    fun refreshTasks() {
+        tasks.pruneFired()
+        notes = tasks.notes()
+        reminders = tasks.reminders()
+    }
+
+    fun addNote(text: String) {
+        if (text.isBlank()) return
+        tasks.addNote(text.trim()); refreshTasks()
+    }
+
+    fun deleteNote(id: Long) { tasks.deleteNote(id); refreshTasks() }
+    fun deleteReminder(id: Long) { tasks.deleteReminder(id); refreshTasks() }
 
     init {
         val saved = graph.chatStore.load()
@@ -160,7 +283,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         if (!fromVoice) draft = ""
         hint = ""
         add(Role.USER, text)
-        val local = CommandParser.parse(text)
+        if (resolveAwaiting(text, fromVoice)) return
+        val local = CommandParser.parse(text, wakeNames())
         if (local != null) handle(local, viaVoice = fromVoice) else askBrain(fromVoice)
     }
 
@@ -196,8 +320,12 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         val now = SimpleDateFormat("d MMMM yyyy, EEEE, HH:mm", Locale("ru")).format(Date())
         return buildString {
             appendLine(s.persona)
+            if (!s.wakeName.equals("Архангел", ignoreCase = true)) {
+                appendLine("Пользователь зовёт тебя «${s.wakeName}» (изначальное имя — Архангел). Откликайся на оба.")
+            }
             if (s.userName.isNotBlank()) appendLine("Пользователя зовут ${s.userName} — обращайся к нему так.")
             appendLine("Ты работаешь в Android-приложении ARCHANGEL AI на телефоне пользователя. Сейчас: $now.")
+            appendLine("Если просьба неоднозначна — задай один короткий уточняющий вопрос, а не угадывай.")
             appendLine("Не используй markdown-таблицы. Если вопрос про трейдинг — помогай по существу, но помни, что это не финансовый совет.")
             appendLine()
             append(CommandParser.ACTION_PROMPT)
@@ -294,7 +422,115 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 pending = PendingAction(action, "Сообщение", "Кому: ${action.target}\n«${action.text}»", danger = false)
                 core = CoreState.IDLE
             }
+            is PhoneAction.YouTube ->
+                if (action.query == null) ask(Ask.YouTubeQuery, "Что найти на YouTube?", viaVoice)
+                else reply(graph.phone.youtube(action.query), viaVoice)
+            is PhoneAction.Music -> handleMusic(action, viaVoice)
+            is PhoneAction.Taxi -> handleTaxi(action, viaVoice)
+            is PhoneAction.Note -> {
+                val text = action.text?.trim().orEmpty()
+                if (text.isEmpty()) ask(Ask.NoteText, "Что записать?", viaVoice)
+                else {
+                    addNote(text)
+                    reply("Записал: «$text».", viaVoice)
+                }
+            }
+            PhoneAction.ShowNotes -> {
+                refreshTasks()
+                navigateTo = AppScreen.TASKS
+                val n = notes
+                reply(
+                    if (n.isEmpty()) "Заметок пока нет. Скажите: «запиши заметку…»."
+                    else "Заметок: ${n.size}. Последние: " + n.take(3).joinToString("; ") { it.text } + ".",
+                    viaVoice,
+                )
+            }
+            is PhoneAction.Reminder -> {
+                val text = action.text?.trim().orEmpty()
+                val at = action.at
+                when {
+                    text.isEmpty() -> ask(Ask.ReminderText(at), "О чём напомнить?", viaVoice)
+                    at == null -> ask(Ask.ReminderTime(text), "Когда напомнить?", viaVoice)
+                    at <= System.currentTimeMillis() ->
+                        ask(Ask.ReminderTime(text), "Это время уже прошло. Когда напомнить?", viaVoice)
+                    else -> {
+                        tasks.addReminder(text, at)
+                        refreshTasks()
+                        needNotificationPermission = true
+                        reply("Напомню ${CommandParser.describeTime(at)}: $text.", viaVoice)
+                    }
+                }
+            }
+            PhoneAction.ShowReminders -> {
+                refreshTasks()
+                navigateTo = AppScreen.TASKS
+                val list = reminders
+                reply(
+                    if (list.isEmpty()) "Напоминаний нет."
+                    else "Напоминаний: ${list.size}. Ближайшее — ${CommandParser.describeTime(list.first().at)}: ${list.first().text}.",
+                    viaVoice,
+                )
+            }
             else -> reply(graph.phone.execute(action), viaVoice)
+        }
+    }
+
+    private fun handleMusic(action: PhoneAction.Music, viaVoice: Boolean) {
+        val installed = graph.phone.installedMusicApps()
+        val last = installed.firstOrNull { it.name == settings.value.musicApp }
+        val app = action.app ?: installed.singleOrNull()
+        when {
+            installed.isEmpty() -> reply("Не нашёл музыкальных приложений. Установите YouTube Music или Spotify.", viaVoice)
+            app == null -> ask(
+                Ask.MusicAppQ(action.query),
+                if (last != null) "Включить в ${last.title}, как в прошлый раз, или в другом приложении?"
+                else "В каком приложении включить: ${installed.joinToString(", ") { it.title }}?",
+                viaVoice,
+            )
+            !graph.phone.isInstalled(app.pkg) -> ask(
+                Ask.MusicAppQ(action.query),
+                "${app.title} не установлен. Есть: ${installed.joinToString(", ") { it.title }}. Какое?",
+                viaVoice,
+            )
+            action.query == null -> {
+                rememberApps(music = app)
+                ask(Ask.MusicQuery(app), "Что поставить? Исполнителя, песню, жанр — или «что угодно».", viaVoice)
+            }
+            else -> {
+                rememberApps(music = app)
+                reply(graph.phone.playMusic(app, action.query), viaVoice)
+            }
+        }
+    }
+
+    private fun handleTaxi(action: PhoneAction.Taxi, viaVoice: Boolean) {
+        val installed = graph.phone.installedTaxiApps()
+        if (installed.isEmpty()) {
+            reply("Не нашёл приложений такси. Установите Uklon, Bolt или Uber — и я смогу вызывать машину.", viaVoice)
+            return
+        }
+        if (action.destination.isNullOrBlank()) {
+            ask(Ask.TaxiDest(action.app), "Куда едем?", viaVoice)
+            return
+        }
+        val last = installed.firstOrNull { it.name == settings.value.taxiApp }
+        val app = action.app?.takeIf { it in installed } ?: installed.singleOrNull()
+        if (app == null) {
+            ask(
+                Ask.TaxiAppQ(action.destination),
+                if (last != null) "Через ${last.title}, как в прошлый раз, или другое приложение?"
+                else "Через какое приложение: ${installed.joinToString(", ") { it.title }}?",
+                viaVoice,
+            )
+            return
+        }
+        rememberApps(taxi = app)
+        reply(graph.phone.callTaxi(app, action.destination), viaVoice)
+    }
+
+    private fun rememberApps(music: MusicApp? = null, taxi: TaxiApp? = null) {
+        graph.settings.update { s ->
+            s.copy(musicApp = music?.name ?: s.musicApp, taxiApp = taxi?.name ?: s.taxiApp)
         }
     }
 

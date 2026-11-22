@@ -152,6 +152,13 @@ fun SettingsScreen(
         MonoLabel("Знакомство", color = Bone)
         Spacer(Modifier.height(10.dp))
         Field(label = "Как обращаться ко мне", value = s.userName, placeholder = "Имя", onChange = { s = s.copy(userName = it) })
+        Field(
+            label = "Как звать ассистента",
+            value = s.wakeName,
+            placeholder = "Архангел",
+            onChange = { s = s.copy(wakeName = it) },
+            hint = "Откликается и на это имя, и на «Архангел»: «${s.wakeName.ifBlank { "Архангел" }}, включи музыку».",
+        )
         Toggle("Приветствовать при запуске", s.greetOnLaunch) { s = s.copy(greetOnLaunch = it) }
 
         // ── Голос
