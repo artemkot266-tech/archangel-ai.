@@ -131,6 +131,7 @@ class PhoneController(private val context: Context) {
         // Эти действия обрабатывает само приложение (разделы, биржа, заметки, напоминания).
         is PhoneAction.Market, is PhoneAction.Order, is PhoneAction.Screen,
         is PhoneAction.Note, PhoneAction.ShowNotes, is PhoneAction.Reminder, PhoneAction.ShowReminders -> ""
+        else -> "" // память, погода, брифинг, портфель, календарь — обрабатывает AssistantViewModel
     }
 
     fun isInstalled(pkg: String): Boolean =
