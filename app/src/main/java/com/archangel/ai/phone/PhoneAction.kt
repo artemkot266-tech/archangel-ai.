@@ -49,7 +49,7 @@ enum class AppScreen { CORE, CHAT, TASKS, MARKET, SETTINGS }
 enum class MusicApp(val title: String, val pkg: String, val playFromSearch: Boolean, val words: List<String>) {
     YOUTUBE_MUSIC("YouTube Music", "com.google.android.apps.youtube.music", true,
         listOf("ютуб музык", "youtube music", "ютюб музык", "yt music")),
-    SPOTIFY("Spotify", "com.spotify.music", true, listOf("спотифай", "spotify", "спотик", "спотифае")),
+    SPOTIFY("Spotify", "com.spotify.music", true, listOf("спотиф", "spotify", "спотик")),
     YANDEX("Яндекс Музыка", "ru.yandex.music", true, listOf("яндекс", "yandex")),
     APPLE("Apple Music", "com.apple.android.music", true, listOf("эпл", "apple")),
     DEEZER("Deezer", "deezer.android.app", true, listOf("дизер", "deezer")),

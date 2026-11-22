@@ -85,7 +85,7 @@ object CommandParser {
         Regex("^(вызови|закажи|вызвать|заказать|нужно|нужно такси)\\s+(мне\\s+)?такси\\s*(.*)$").find(s)?.let {
             var rest = it.groupValues[3]
             val app = TaxiApp.fromText(rest)
-            rest = rest.replace(Regex("(через|в|на)\\s+(уклон|uklon|болт|bolt|убер|uber)\\w*"), "").trim()
+            rest = rest.replace(Regex("(через|в|на)\\s+(уклон|uklon|болт|bolt|убер|uber)[\\p{L}\\d_]*"), "").trim()
             val dest = Regex("^(до|в|на|к|ко)\\s+(.+)$").find(rest)?.groupValues?.get(2)?.trim()
             return PhoneAction.Taxi(dest?.ifEmpty { null }, app)
         }
@@ -97,12 +97,12 @@ object CommandParser {
             val q = stripAppMention(rest).ifEmpty { null }
             return PhoneAction.Music(app, q)
         }
-        Regex("^(включи|поставь|запусти|играй)\\s+(.+?)\\s+(в|на|через)\\s+(спотифа\\w*|spotify|ютуб музык\\w*|youtube music|яндекс музык\\w*|саундклауд\\w*|soundcloud|дизер\\w*|deezer)$").find(s)?.let {
+        Regex("^(включи|поставь|запусти|играй)\\s+(.+?)\\s+(в|на|через)\\s+(спотифа[\\p{L}\\d_]*|spotify|ютуб музык[\\p{L}\\d_]*|youtube music|яндекс музык[\\p{L}\\d_]*|саундклауд[\\p{L}\\d_]*|soundcloud|дизер[\\p{L}\\d_]*|deezer)$").find(s)?.let {
             return PhoneAction.Music(MusicApp.fromText(it.groupValues[4]), it.groupValues[2].trim())
         }
 
         // YouTube: «открой ютуб», «включи на ютубе гайд по доте 2», «найди на ютубе …»
-        Regex("^(открой|запусти|включи|найди|покажи|поставь)?\\s*(мне\\s+)?(на\\s+|в\\s+)?(ютуб|youtube|ютюб)\\w*\\s*(.*)$").find(s)?.let {
+        Regex("^(открой|запусти|включи|найди|покажи|поставь)?\\s*(мне\\s+)?(на\\s+|в\\s+)?(ютуб|youtube|ютюб)[\\p{L}\\d_]*\\s*(.*)$").find(s)?.let {
             val verb = it.groupValues[1]
             val rest = it.groupValues[5].trim()
             if (rest.startsWith("музык")) return PhoneAction.Music(MusicApp.YOUTUBE_MUSIC, null)
@@ -190,7 +190,7 @@ object CommandParser {
 
     /** «imagine dragons в спотифае» → «imagine dragons». */
     fun stripAppMention(s: String): String =
-        s.replace(Regex("\\s*(в|на|через)\\s+(спотифа\\w*|spotify|ютуб\\w*\\s*музык\\w*|youtube music|ютуб\\w*|youtube|яндекс\\s*музык\\w*|яндекс\\w*|эпл\\w*|apple music|дизер\\w*|deezer|саундклауд\\w*|soundcloud)\\s*$"), "")
+        s.replace(Regex("\\s*(в|на|через)\\s+(спотифа[\\p{L}\\d_]*|spotify|ютуб[\\p{L}\\d_]*\\s*музык[\\p{L}\\d_]*|youtube music|ютуб[\\p{L}\\d_]*|youtube|яндекс\\s*музык[\\p{L}\\d_]*|яндекс[\\p{L}\\d_]*|эпл[\\p{L}\\d_]*|apple music|дизер[\\p{L}\\d_]*|deezer|саундклауд[\\p{L}\\d_]*|soundcloud)\\s*$"), "")
             .trim()
 
     /** Ответ на уточняющий вопрос: «включи гайд по доте» → «гайд по доте». */
@@ -223,7 +223,7 @@ object CommandParser {
      */
     fun parseWhen(text: String, now: Calendar = Calendar.getInstance()): Pair<Long?, String> {
         var s = " ${text.lowercase().replace('ё', 'е')} "
-        Regex("\\s+через\\s+(\\d+|пару|полчаса|час|минуту)\\s*(секунд\\w*|сек|минут\\w*|мин|час\\w*|ч)?\\s+").find(s)?.let { m ->
+        Regex("\\s+через\\s+(\\d+|пару|полчаса|час|минуту)\\s*(секунд[\\p{L}\\d_]*|сек|минут[\\p{L}\\d_]*|мин|час[\\p{L}\\d_]*|ч)?\\s+").find(s)?.let { m ->
             val nRaw = m.groupValues[1]
             val unit = m.groupValues[2]
             val minutes = when {
