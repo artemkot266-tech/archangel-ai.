@@ -68,6 +68,8 @@ sealed class PhoneAction {
     data class Weather(val day: Int) : PhoneAction()
     object Briefing : PhoneAction()
     object Portfolio : PhoneAction()
+    /** «Сколько я заработал за неделю?» days: 7/30/0 (всё время). */
+    data class Profit(val days: Int) : PhoneAction()
     /** «Что с рынком?» — голосовая сводка по монетам, индексу страха и портфелю. */
     object MarketSummary : PhoneAction()
     /** Урок из раздела «Обучение». id = null — открыть список уроков. */

@@ -142,6 +142,17 @@ object CommandParser {
         Regex("^запомни\\s*[:,]?\\s*(что\\s+)?(.*)$").find(s)?.let { return PhoneAction.Remember(it.groupValues[2].trim().ifEmpty { null }) }
         Regex("^забудь\\s*[:,]?\\s*(что\\s+|про\\s+|о\\s+)?(.+)$").find(s)?.let { return PhoneAction.Forget(it.groupValues[2].trim()) }
 
+        // Итоги торговли: «сколько я заработал за неделю», «мои итоги за месяц»
+        Regex("^(сколько (я )?(заработал|заработала|потерял|потеряла|в плюсе|в минусе)|(мои |покажи )?(итоги|прибыль|доходность)( торговли| по сделкам)?|какая (у меня )?прибыль)").find(s)?.let {
+            val days = when {
+                Regex("недел").containsMatchIn(s) -> 7
+                Regex("месяц").containsMatchIn(s) -> 30
+                Regex("(все|всё) время|всего").containsMatchIn(s) -> 0
+                else -> 30
+            }
+            return PhoneAction.Profit(days)
+        }
+
         // Сводка рынка: «что с рынком?», «как там крипта?», «обзор рынка»
         Regex("^((что|как)\\s+(там\\s+)?(с|на|по)?\\s*(рынком|рынке|рынку|рынок|криптой|крипте|крипта|криптовалютой|криптовалютами|биткоином и рынком)|(обзор|сводка|сводку|сводкой) (по )?(рынка|рынку|рынке|крипты|крипте|крипто))").find(s)?.let {
             return PhoneAction.MarketSummary
@@ -524,6 +535,7 @@ object CommandParser {
             "remember" -> PhoneAction.Remember(str("fact"))
             "find_phone" -> PhoneAction.FindPhone(o.optBoolean("on", true))
             "market_summary" -> PhoneAction.MarketSummary
+            "profit" -> PhoneAction.Profit(o.optInt("days", 30))
             "protect" -> PhoneAction.Protect(o.getString("symbol").uppercase(), o.optDouble("stop", 5.0) / 100, o.optDouble("take", 10.0) / 100)
             "cancel_orders" -> PhoneAction.CancelOrders(str("symbol")?.uppercase())
             "dca" -> PhoneAction.DcaAdd(o.getString("symbol").uppercase(), o.getDouble("usdt"), str("weekday")?.let { weekdayOf(it) })
@@ -557,6 +569,7 @@ object CommandParser {
 {"type":"price_alert","symbol":"BTCUSDT","price":100000}
 {"type":"find_phone","on":true}  (пользователь ищет телефон: громкий сигнал; on:false — выключить)
 {"type":"market_summary"}  (обзор рынка: монеты, индекс страха и жадности, портфель)
+{"type":"profit","days":7}  (итоги торговли: прибыль за 7/30 дней, 0 — за всё время)
 {"type":"lesson","id":"risk"}  (открыть урок; id из: basics, stablecoins, security, api_keys, deposit_choose, deposit_binance, deposit_bybit, deposit_okx, deposit_whitebit, transfer, p2p_safety, candles, levels, rsi, macd, sma, volume, mtf, fng, signals, orders, stoploss, risk, dca, fees, emotions, practice, voice)
 {"type":"remember","fact":"факт о пользователе — ТОЛЬКО если он сам попросил запомнить"}
 {"type":"market","symbol":"BTCUSDT"}

@@ -760,6 +760,15 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 val cal = if (CalendarHelper.canRead(graph)) CalendarHelper.describe(CalendarHelper.eventsForDay(graph)) + " " else ""
                 reply(cal + (if (today.isEmpty()) "Напоминаний на сегодня нет." else "Напоминания: $today."), viaVoice)
             }
+            is PhoneAction.Profit -> background(viaVoice) {
+                val s = settings.value
+                if (!s.exchangeReady) "Биржа не подключена — добавьте ключ Binance в настройках."
+                else {
+                    val plans = com.archangel.ai.market.DcaStore(graph).all().map { it.symbol }
+                    val r = com.archangel.ai.market.PnlLoader.load(graph.binance, s, plans, action.days)
+                    com.archangel.ai.market.PnlLoader.spoken(r, action.days) + if (s.binanceTestnet) " Это демо-счёт." else ""
+                }
+            }
             PhoneAction.MarketSummary -> background(viaVoice) {
                 val s = settings.value
                 val symbols = (s.watchlist.ifEmpty { com.archangel.ai.data.AppSettings.DEFAULT_WATCHLIST }).take(5)
@@ -939,6 +948,14 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         if (market.isNotEmpty()) parts += "Рынок: " + market.joinToString("; ") + "."
+        if (s.exchangeReady) {
+            runCatching { graph.binance.portfolio(s.binanceKey, s.binanceSecret, s.binanceTestnet) }.getOrNull()
+                ?.takeIf { it.total > 0 }?.let { p ->
+                    parts += "Ваш портфель${if (s.binanceTestnet) " на демо-счёте" else ""}: " +
+                        "${com.archangel.ai.market.Analytics.spokenPrice(p.total)} долларов, за сутки " +
+                        com.archangel.ai.market.Analytics.spokenPct(p.change24) + "."
+                }
+        }
         parts += "Хорошего дня."
         return parts.joinToString(" ")
     }

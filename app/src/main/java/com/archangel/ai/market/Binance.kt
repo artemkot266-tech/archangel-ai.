@@ -251,6 +251,25 @@ class BinanceClient {
         signed("DELETE", "/api/v3/openOrders", mapOf("symbol" to symbol), key, secret, testnet)
     }
 
+    /** История сделок по паре (до 1000 последних). */
+    suspend fun myTrades(symbol: String, key: String, secret: String, testnet: Boolean): List<Trade> {
+        val res = signed("GET", "/api/v3/myTrades", mapOf("symbol" to symbol, "limit" to "1000"), key, secret, testnet)
+        val arr = JSONArray(res.body)
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            Trade(
+                symbol = symbol,
+                time = o.getLong("time"),
+                buy = o.getBoolean("isBuyer"),
+                price = o.getString("price").toDouble(),
+                qty = o.getString("qty").toDouble(),
+                quote = o.getString("quoteQty").toDouble(),
+                commission = o.optString("commission", "0").toDoubleOrNull() ?: 0.0,
+                commissionAsset = o.optString("commissionAsset"),
+            )
+        }
+    }
+
     /** Свободный остаток монеты (например, после покупки — сколько реально можно продать). */
     suspend fun free(asset: String, key: String, secret: String, testnet: Boolean): Double =
         balances(key, secret, testnet).firstOrNull { it.asset == asset }?.free ?: 0.0

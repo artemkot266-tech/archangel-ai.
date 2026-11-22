@@ -573,6 +573,12 @@ fun MarketScreen(
                 "за сутки " + (if (p.change24 >= 0) "+" else "") + String.format(Locale.US, "%.2f%%", p.change24),
                 style = TextStyles.Mono, color = if (p.change24 >= 0) Bone else Ember,
             )
+            Spacer(Modifier.height(14.dp))
+            com.archangel.ai.ui.market.AllocationDonut(p)
+            com.archangel.ai.market.Pnl.concentrationHint(p)?.let { hint ->
+                Spacer(Modifier.height(8.dp))
+                Text(hint, style = TextStyles.BodySmall, color = Ember)
+            }
             Spacer(Modifier.height(10.dp))
             p.items.take(10).forEach { h ->
                 val share = if (p.total > 0) (h.value / p.total).toFloat() else 0f
@@ -612,6 +618,51 @@ fun MarketScreen(
         }
         Spacer(Modifier.height(8.dp))
         Pill("Обновить баланс", onClick = { vm.loadBalances() })
+        // ── Итоги
+        if (settings.exchangeReady) {
+            Spacer(Modifier.height(28.dp))
+            SectionHeader("03.6", "Итоги", trailing = if (settings.binanceTestnet) "демо" else "live")
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(7 to "Неделя", 30 to "Месяц", 0 to "Всё время").forEach { (d, label) ->
+                    Chip(label, onClick = { vm.loadPnl(d) }, selected = vm.pnlDays == d && vm.pnl != null)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            val rep = vm.pnl
+            when {
+                vm.pnlLoading -> Text("Считаю по истории сделок…", style = TextStyles.BodySmall)
+                rep == null -> Pill("Посчитать прибыль", onClick = { vm.loadPnl() })
+                else -> {
+                    Text(com.archangel.ai.ui.market.signedUsd(rep.total), style = TextStyles.Digits.copy(fontSize = 28.sp),
+                        color = if (rep.total >= 0) Bone else Ember)
+                    MonoLabel(
+                        "зафиксировано ${com.archangel.ai.ui.market.signedUsd(rep.realized)} · на бумаге ${com.archangel.ai.ui.market.signedUsd(rep.unrealized)}",
+                        color = Smoke,
+                    )
+                    if (rep.wins + rep.losses > 0) {
+                        MonoLabel("продажи в плюс: ${rep.wins} · в минус: ${rep.losses}", color = Smoke)
+                    }
+                    com.archangel.ai.ui.market.PnlCurve(rep.curve)
+                    rep.coins.forEach { c ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(c.coin, style = TextStyles.Mono)
+                                if (c.held > 0) MonoLabel("средняя покупка ${Indicators.formatPrice(c.avgCost)}", color = Smoke)
+                            }
+                            Text(com.archangel.ai.ui.market.signedUsd(c.total), style = TextStyles.Mono, color = if (c.total >= 0) Bone else Ember)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "«На бумаге» — прибыль по текущей цене, если продать сейчас. Монеты, купленные не на этом счёте, в расчёт не входят.",
+                        style = TextStyles.BodySmall.copy(color = Smoke),
+                    )
+                }
+            }
+            if (vm.pnlMessage.isNotBlank()) Text(vm.pnlMessage, style = TextStyles.BodySmall)
+        }
+
         Spacer(Modifier.height(18.dp))
         Text(
             "Графики и индикаторы точные — это данные биржи. Разбор ИИ — мнение модели, а не гарантия и не финансовый совет.",

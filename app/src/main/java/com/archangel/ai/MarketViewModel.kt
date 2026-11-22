@@ -93,6 +93,37 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── Итоги: история сделок и прибыль
+    var pnl by mutableStateOf<com.archangel.ai.market.PnlReport?>(null)
+        private set
+    var pnlLoading by mutableStateOf(false)
+        private set
+    var pnlMessage by mutableStateOf("")
+        private set
+    /** 7 — неделя, 30 — месяц, 0 — всё время. */
+    var pnlDays by mutableStateOf(30)
+
+    fun loadPnl(days: Int = pnlDays) {
+        pnlDays = days
+        val s = graph.settings.current
+        if (!s.exchangeReady) { pnlMessage = "Подключите биржу в настройках."; return }
+        pnlLoading = true
+        pnlMessage = ""
+        viewModelScope.launch {
+            try {
+                val rep = com.archangel.ai.market.PnlLoader.load(graph.binance, s, dcaPlans.map { it.symbol }, days)
+                pnl = rep
+                if (rep.coins.isEmpty()) pnlMessage = "Сделок пока нет."
+            } catch (e: FriendlyException) {
+                pnlMessage = e.message.orEmpty()
+            } catch (e: Exception) {
+                pnlMessage = "Не удалось посчитать: ${e.javaClass.simpleName}"
+            } finally {
+                pnlLoading = false
+            }
+        }
+    }
+
     // ── Открытые ордера
     var openOrders by mutableStateOf<List<com.archangel.ai.market.OpenOrder>>(emptyList())
         private set
