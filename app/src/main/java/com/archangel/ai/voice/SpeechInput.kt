@@ -30,21 +30,49 @@ class SpeechInput(
 
     val available get() = SpeechRecognizer.isRecognitionAvailable(context)
 
-    /** Глушит системный «бип» при перезапуске микрофона в режиме ожидания (если не играет музыка). */
-    var quiet = false
+    /**
+     * Тишина в режиме ожидания. Распознавание перезапускается каждые несколько секунд,
+     * и система каждый раз пищит. Пока ждём имя — держим системные звуки и медиа заглушёнными.
+     * Если пользователь сам включил музыку — сразу возвращаем звук и больше не глушим.
+     */
     private val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val prefs = context.getSharedPreferences("archangel_audio", Context.MODE_PRIVATE)
     private var muted = false
+    private var holding = false
+    private var musicTicks = 0
     private val focus = AudioFocus.forListening(context)
 
-    private fun muteBeep() {
-        if (!quiet || audio.isMusicActive) return
+    private val watchdog = object : Runnable {
+        override fun run() {
+            if (!holding) return
+            // Писк длится доли секунды; «музыка» дольше 2 секунд — это пользователь что-то включил
+            if (audio.isMusicActive) musicTicks++ else musicTicks = 0
+            if (musicTicks >= 2 && muted) unmute()
+            mainHandler.postDelayed(this, 1000)
+        }
+    }
+
+    /** Включить/выключить тихий режим ожидания. */
+    fun holdQuiet(on: Boolean) {
+        if (on == holding) return
+        holding = on
+        mainHandler.removeCallbacks(watchdog)
+        if (on) {
+            musicTicks = 0
+            if (!audio.isMusicActive) mute()
+            mainHandler.postDelayed(watchdog, 1000)
+        } else unmute()
+    }
+
+    private fun mute() {
+        if (muted) return
         runCatching {
             audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
             audio.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_MUTE, 0)
             muted = true
+            prefs.edit().putBoolean("muted", true).apply()
         }
-        mainHandler.postDelayed({ unmute() }, 700)
     }
 
     fun unmute() {
@@ -54,6 +82,7 @@ class SpeechInput(
             audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
             audio.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_UNMUTE, 0)
         }
+        prefs.edit().putBoolean("muted", false).apply()
     }
 
     /** Офлайн-распознавание на устройстве сломалось (нет русской модели) — больше не пробуем. */
@@ -119,7 +148,6 @@ class SpeechInput(
         isListening = true
         // Музыку ставим на паузу только при обычном прослушивании, не в режиме ожидания
         if (!background) focus.acquire()
-        muteBeep()
         r.startListening(intent)
     }
 
@@ -149,6 +177,18 @@ class SpeechInput(
     }
 
     companion object {
+        /** Если приложение закрылось, пока звук был заглушён, — вернуть звук при следующем запуске. */
+        fun recoverSound(context: Context) {
+            val p = context.getSharedPreferences("archangel_audio", Context.MODE_PRIVATE)
+            if (!p.getBoolean("muted", false)) return
+            val a = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            runCatching {
+                a.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
+                a.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_UNMUTE, 0)
+            }
+            p.edit().putBoolean("muted", false).apply()
+        }
+
         /** Тишина или неразборчивая речь — для режима ожидания это норма, а не сбой. */
         fun isSilence(code: Int) = code == SpeechRecognizer.ERROR_NO_MATCH || code == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
     }

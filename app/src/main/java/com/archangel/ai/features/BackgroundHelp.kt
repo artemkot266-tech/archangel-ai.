@@ -42,4 +42,17 @@ object BackgroundHelp {
         val ok = open(context, Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + context.packageName)))
         if (!ok) appDetails(context)
     }
+
+    /**
+     * Xiaomi/Poco: «Другие разрешения» приложения — там «Отображать всплывающие окна в фоне»
+     * и «Показывать на экране блокировки». Без них HyperOS не даёт открывать приложения из фона.
+     */
+    fun xiaomiPermissions(context: Context) {
+        val pkg = context.packageName
+        val editor = Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", pkg)
+        val ok = open(context, Intent(editor).setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")) ||
+            open(context, Intent(editor).setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.AppPermissionsEditorActivity")) ||
+            open(context, editor)
+        if (!ok) appDetails(context)
+    }
 }

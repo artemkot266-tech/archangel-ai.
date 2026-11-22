@@ -30,6 +30,7 @@ class ArchangelApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashGuard.install(this) // первым делом — чтобы поймать даже ошибку при старте
+        com.archangel.ai.voice.SpeechInput.recoverSound(this) // звук не должен остаться заглушённым после сбоя
         settings = SettingsStore(this)
         chatStore = ChatStore(this)
         phone = PhoneController(this)

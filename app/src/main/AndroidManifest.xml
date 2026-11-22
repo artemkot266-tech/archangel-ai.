@@ -3,6 +3,8 @@
 
     <!-- Мозг (ИИ) и биржа -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- «Поверх других окон»: без объявления телефон не показывает приложение в этом списке -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Голосовой ввод -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Голосовое управление телефоном: звонки по имени контакта, будильники -->

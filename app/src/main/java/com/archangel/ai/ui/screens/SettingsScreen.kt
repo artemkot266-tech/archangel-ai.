@@ -218,10 +218,12 @@ fun SettingsScreen(
                 Pill("2. Автозапуск", onClick = { com.archangel.ai.features.BackgroundHelp.autostart(ctx) }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
                 Pill("3. Поверх других окон", onClick = { com.archangel.ai.features.BackgroundHelp.overlay(ctx) }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Pill("4. Всплывающие окна в фоне (Xiaomi)", onClick = { com.archangel.ai.features.BackgroundHelp.xiaomiPermissions(ctx) }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Третье нужно, чтобы из фона открывать YouTube, музыку, такси и звонки. На Xiaomi также включите в разрешениях " +
-                        "приложения «Отображать всплывающие окна в фоне». И закрепите Архангела в недавних приложениях (замочек на карточке).",
+                    "3 и 4 нужны, чтобы из фона открывать YouTube, музыку, такси и звонки. В пункте 4 включите " +
+                        "«Отображать всплывающие окна в фоне» и «Экран блокировки». И закрепите Архангела в недавних приложениях (замочек на карточке).",
                     style = TextStyles.BodySmall.copy(color = Smoke),
                 )
             }

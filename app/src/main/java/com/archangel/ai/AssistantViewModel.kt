@@ -124,7 +124,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     private val speaker = Speaker(
         context = app,
-        onStart = { core = CoreState.SPEAKING },
+        onStart = { speech.holdQuiet(false); core = CoreState.SPEAKING },
         onDone = {
             if (core == CoreState.SPEAKING) core = CoreState.IDLE
             // Задали уточняющий вопрос голосом — сразу слушаем ответ
@@ -290,12 +290,15 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             if (standbyWanted()) {
                 if (!speech.isListening) {
                     passive = true
-                    speech.quiet = true
+                    speech.holdQuiet(true)
                     speech.start(background = true)
                 }
-            } else if (passive) {
-                passive = false
-                speech.stop()
+            } else {
+                speech.holdQuiet(false)
+                if (passive) {
+                    passive = false
+                    speech.stop()
+                }
             }
         }
     }
@@ -311,6 +314,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         }
         val (heard, pos) = hit
         standbyFailures = 0
+        speech.holdQuiet(false)
         wakeBuzz()
         val rest = heard.substring(minOf(pos, heard.length)).trim(' ', ',', '.', '!', '?')
         if (rest.isEmpty()) {
@@ -422,8 +426,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startListening() {
         passive = false
-        speech.quiet = false
-        speech.unmute()
+        speech.holdQuiet(false)
         speaker.stop()
         hint = ""
         partial = ""
@@ -1024,6 +1027,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         standbyJob?.cancel()
+        speech.holdQuiet(false)
         speech.stop()
         speaker.release()
         super.onCleared()
