@@ -110,9 +110,12 @@ class BinanceClient {
             .sortedByDescending { if (it.asset == "USDT") Double.MAX_VALUE else it.free + it.locked }
     }
 
-    suspend fun portfolio(key: String, secret: String, testnet: Boolean): Portfolio {
+    suspend fun portfolio(key: String, secret: String, testnet: Boolean): Portfolio = valuate(balances(key, secret, testnet))
+
+    /** Оценка любых балансов (в т.ч. с других бирж) в USDT по ценам Binance. */
+    suspend fun valuate(balances: List<Balance>): Portfolio {
         val stable = setOf("USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI")
-        val items = balances(key, secret, testnet).mapNotNull { b ->
+        val items = balances.mapNotNull { b ->
             val amount = b.free + b.locked
             if (b.asset in stable) Holding(b.asset, amount, amount, 0.0)
             else runCatching { ticker(b.asset + "USDT") }.getOrNull()?.let { t ->

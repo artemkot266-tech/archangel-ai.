@@ -60,6 +60,16 @@ enum class OrbTheme(val title: String, val core: Long, val rim: Long) {
     AMETHYST("Аметист", 0xFF9B7BFF, 0xFFDCCFFF),
 }
 
+/** Биржа для баланса и сделок. Графики и анализ — всегда по публичным данным Binance. */
+enum class Exchange(val title: String, val hasDemo: Boolean, val needsPassphrase: Boolean, val canTrade: Boolean) {
+    BINANCE("Binance", true, false, true),
+    BYBIT("Bybit", true, false, true),
+    OKX("OKX", true, true, true),
+    WHITEBIT("WhiteBIT", false, false, false),
+}
+
+data class ExchangeCreds(val key: String = "", val secret: String = "", val passphrase: String = "")
+
 /** Чем озвучивать ответы. */
 enum class VoiceEngine(val title: String) {
     SYSTEM("Системный · бесплатно"),
@@ -113,7 +123,20 @@ data class AppSettings(
     val watchlist: List<String> = DEFAULT_WATCHLIST,
     /** Защита от эмоций: пауза после трёх убыточных сделок подряд. */
     val tiltGuard: Boolean = true,
+    /** Активная биржа и ключи других бирж (Bybit, OKX, WhiteBIT). */
+    val exchange: Exchange = Exchange.BINANCE,
+    val altKeys: Map<Exchange, ExchangeCreds> = emptyMap(),
+    /** Демо-счёт на Bybit/OKX. */
+    val altDemo: Boolean = true,
 ) {
+    val altCreds get() = altKeys[exchange] ?: ExchangeCreds()
+    val altReady get() = exchange != Exchange.BINANCE && altCreds.key.isNotBlank() && altCreds.secret.isNotBlank() &&
+        (!exchange.needsPassphrase || altCreds.passphrase.isNotBlank())
+    /** Деньги ненастоящие (демо) на активной бирже. */
+    val tradeDemo get() = if (exchange == Exchange.BINANCE) binanceTestnet else altDemo && exchange.hasDemo
+    /** Активная биржа подключена. */
+    val activeReady get() = if (exchange == Exchange.BINANCE) exchangeReady else altReady
+
     fun keyFor(b: Brain = brain) = keys[b].orEmpty()
     fun modelFor(b: Brain = brain) = models[b]?.takeIf { it.isNotBlank() } ?: b.defaultModel
     fun baseUrlFor(b: Brain = brain) = baseUrls[b]?.takeIf { it.isNotBlank() } ?: b.defaultBaseUrl
@@ -181,6 +204,15 @@ class SettingsStore(context: Context) {
             watchlist = (prefs.getString("watchlist", null) ?: AppSettings.DEFAULT_WATCHLIST.joinToString(","))
                 .split(',').map { it.trim().uppercase() }.filter { it.isNotEmpty() },
             tiltGuard = prefs.getBoolean("tilt_guard", true),
+            exchange = runCatching { Exchange.valueOf(prefs.getString("exchange", null) ?: "") }.getOrDefault(Exchange.BINANCE),
+            altKeys = Exchange.entries.filter { it != Exchange.BINANCE }.associateWith {
+                ExchangeCreds(
+                    SecretBox.decrypt(prefs.getString("ex_key_${it.name}", "") ?: ""),
+                    SecretBox.decrypt(prefs.getString("ex_secret_${it.name}", "") ?: ""),
+                    SecretBox.decrypt(prefs.getString("ex_pass_${it.name}", "") ?: ""),
+                )
+            },
+            altDemo = prefs.getBoolean("alt_demo", true),
         )
     }
 
@@ -231,6 +263,13 @@ class SettingsStore(context: Context) {
             putBoolean("signals", clean.signalsEnabled)
             putString("watchlist", clean.watchlist.distinct().joinToString(","))
             putBoolean("tilt_guard", clean.tiltGuard)
+            putString("exchange", clean.exchange.name)
+            clean.altKeys.forEach { (ex, c) ->
+                putString("ex_key_${ex.name}", SecretBox.encrypt(c.key.trim()))
+                putString("ex_secret_${ex.name}", SecretBox.encrypt(c.secret.trim()))
+                putString("ex_pass_${ex.name}", SecretBox.encrypt(c.passphrase.trim()))
+            }
+            putBoolean("alt_demo", clean.altDemo)
         }.commit() // синхронно: фоновые приёмники (брифинг) читают эти же настройки
         _settings.value = clean
     }

@@ -26,13 +26,37 @@ class PhoneController(private val context: Context) {
     private fun has(permission: String) =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
-    private fun start(intent: Intent): Boolean = try {
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        true
-    } catch (e: ActivityNotFoundException) {
-        false
-    } catch (e: SecurityException) {
-        false
+    /** Приложение сейчас на экране? (задаёт ассистент) */
+    var isForeground: () -> Boolean = { true }
+
+    private var note = ""
+
+    /** Подсказка после открытия из фона (если понадобилось нажать уведомление). Читается один раз. */
+    fun consumeNote(): String = note.also { note = "" }
+
+    private fun start(intent: Intent, label: String = "Архангел: открыть приложение"): Boolean {
+        if (!isForeground()) {
+            return when (BackgroundLauncher.launch(context, intent, label)) {
+                BackgroundLauncher.Way.OVERLAY -> true
+                BackgroundLauncher.Way.NOTIFICATION -> {
+                    note = "Телефон не даёт открыть приложение из фона — нажмите на уведомление. " +
+                        "Чтобы открывалось само: Настройки Архангела → Режим ожидания → кнопки 3 и 4."
+                    true
+                }
+                BackgroundLauncher.Way.FAILED -> {
+                    note = "Не получилось открыть из фона: разрешите Архангелу уведомления и «Поверх других окон»."
+                    false
+                }
+            }
+        }
+        return try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        } catch (e: SecurityException) {
+            false
+        }
     }
 
     val canReadContacts get() = has(Manifest.permission.READ_CONTACTS)

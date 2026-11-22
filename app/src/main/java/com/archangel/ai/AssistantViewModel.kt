@@ -307,12 +307,17 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         standbyJob = viewModelScope.launch {
             kotlinx.coroutines.delay(delayMs)
             if (standbyWanted()) {
-                if (!speech.isListening) {
+                val w = wake
+                if (w != null) {
+                    // Тихий режим: один непрерывный микрофон, без сигналов и мигания значка
+                    if (!w.active) w.start()
+                } else if (!speech.isListening) {
                     passive = true
                     speech.holdQuiet(true)
                     speech.start(background = true)
                 }
             } else {
+                wake?.stop()
                 speech.holdQuiet(false)
                 if (passive) {
                     passive = false
@@ -322,9 +327,28 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun handleWake(text: String) {
+    /**
+     * Тихий слух (Android 13+). null — телефон так не умеет, работаем по-старому.
+     * Отключается сам после трёх сбоев подряд.
+     */
+    private var wakeBroken = graph.getSharedPreferences("archangel_audio", android.content.Context.MODE_PRIVATE).getBoolean("wake_broken", false)
+    private val wakeListener: com.archangel.ai.voice.WakeListener? by lazy {
+        if (!com.archangel.ai.voice.WakeListener.supported()) null
+        else com.archangel.ai.voice.WakeListener(
+            graph,
+            onPhrase = { list -> if (standbyWanted()) handleWake(list.first(), list) },
+            onUnsupported = {
+                wakeBroken = true
+                graph.getSharedPreferences("archangel_audio", android.content.Context.MODE_PRIVATE).edit().putBoolean("wake_broken", true).apply()
+                refreshStandby(300)
+            },
+        )
+    }
+    private val wake get() = if (wakeBroken) null else wakeListener
+
+    private fun handleWake(text: String, alternatives: List<String> = speech.lastAlternatives) {
         // Имя могло оказаться только в одном из вариантов распознавания
-        val candidates = (listOf(text) + speech.lastAlternatives).distinct()
+        val candidates = (listOf(text) + alternatives).distinct()
         val hit = candidates.firstNotNullOfOrNull { c -> CommandParser.findWakeName(c, wakeNames())?.let { c to it } }
         if (hit == null) {
             standbyFailures = 0
@@ -333,6 +357,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         }
         val (heard, pos) = hit
         standbyFailures = 0
+        wake?.stop() // микрофон нужен для команды
         speech.holdQuiet(false)
         wakeBuzz()
         val rest = heard.substring(minOf(pos, heard.length)).trim(' ', ',', '.', '!', '?')
@@ -415,6 +440,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteReminder(id: Long) { tasks.deleteReminder(id); refreshTasks() }
 
     init {
+        graph.phone.isForeground = { foreground }
         viewModelScope.launch {
             androidx.compose.runtime.snapshotFlow { listOf(core, foreground, pending, backgroundActive) }.collect { refreshStandby() }
         }
@@ -444,13 +470,17 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startListening() {
+        val wasWaking = wake?.active == true
+        wake?.stop()
         passive = false
         speech.holdQuiet(false)
         speaker.stop()
         hint = ""
         partial = ""
         core = CoreState.LISTENING
-        speech.start()
+        // Тихий слух только что отпустил микрофон — даём ему мгновение освободиться
+        if (wasWaking) viewModelScope.launch { kotlinx.coroutines.delay(250); if (core == CoreState.LISTENING) speech.start() }
+        else speech.start()
     }
 
     fun stopListening() {
@@ -1060,7 +1090,10 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun reply(text: String, speak: Boolean) {
+    private fun reply(raw: String, speak: Boolean) {
+        // Если приложение пришлось открывать из фона через уведомление — добавляем подсказку
+        val note = graph.phone.consumeNote()
+        val text = if (note.isEmpty()) raw else "$raw $note".trim()
         if (text.isBlank()) return
         add(Role.ASSISTANT, text)
         if (speak) say(text) else core = CoreState.IDLE
@@ -1231,6 +1264,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         standbyJob?.cancel()
+        wakeListener?.stop()
         speech.holdQuiet(false)
         speech.stop()
         speaker.release()
