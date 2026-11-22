@@ -60,6 +60,8 @@ sealed class PhoneAction {
     data class GuardCheck(val text: String?) : PhoneAction()
     /** «Что мне написали?» */
     object ReadMessages : PhoneAction()
+    /** «Где телефон?» — громкий сигнал (on = true) или «нашёл» — выключить (on = false). */
+    data class FindPhone(val on: Boolean = true) : PhoneAction()
 }
 
 enum class VolumeDir { UP, DOWN, MUTE, MAX }

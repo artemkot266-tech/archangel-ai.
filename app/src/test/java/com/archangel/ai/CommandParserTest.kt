@@ -143,4 +143,16 @@ class CommandParserTest {
         val v = com.archangel.ai.features.Guardian.analyze("https://www.privat24.ua/")
         assertEquals(0, v.danger)
     }
+
+    // ───── «Где телефон?»
+    @Test fun findPhone() = assertEquals(PhoneAction.FindPhone(true), p("Архангел, где мой телефон?"))
+    @Test fun findPhoneShort() = assertEquals(PhoneAction.FindPhone(true), p("где телефон"))
+    @Test fun findPhoneWhereAreYou() = assertEquals(PhoneAction.FindPhone(true), p("Архангел, где ты?"))
+    @Test fun findPhoneLost() = assertEquals(PhoneAction.FindPhone(true), p("я потерял телефон"))
+    @Test fun findPhoneFind() = assertEquals(PhoneAction.FindPhone(true), p("найди мой телефон"))
+    @Test fun findPhoneStop() = assertEquals(PhoneAction.FindPhone(false), p("Нашёл!"))
+    @Test fun findPhoneStopFemale() = assertEquals(PhoneAction.FindPhone(false), p("нашла"))
+    @Test fun findOtherStillSearch() = assertEquals(PhoneAction.Search("рецепт борща"), p("найди рецепт борща"))
+    @Test fun callStillCall() = assertEquals(PhoneAction.Call("маме"), p("позвони маме"))
+    @Test fun findPhoneTag() = assertEquals(PhoneAction.FindPhone(true), CommandParser.parseActionTag("""{"type":"find_phone"}"""))
 }
