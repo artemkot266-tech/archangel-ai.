@@ -182,7 +182,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun isYes(t: String) =
-        Regex("^(да|ага|угу|давай|ок|окей|как в прошлый раз|туда же|там же|как обычно|верно)").containsMatchIn(t.lowercase().trim())
+        Regex("^(да|ага|угу|давай|ок|окей|конечно|как в прошл|как раньше|в том же|в нем же|в нём же|туда же|там же|как обычно|верно|можно|пойдет|пойдёт)")
+            .containsMatchIn(CommandParser.cleanAnswer(t, wakeNames()).lowercase().trim())
 
     /** @return true, если фраза была ответом на уточняющий вопрос. */
     private fun resolveAwaiting(text: String, viaVoice: Boolean): Boolean {

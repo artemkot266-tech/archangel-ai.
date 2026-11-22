@@ -49,6 +49,7 @@ class BrainClient {
                 return text
             } catch (e: ModelUnavailable) {
                 last = FriendlyException(e.message ?: "Модель недоступна")
+                kotlinx.coroutines.delay(600) // перегруженному серверу — мгновение передышки
             }
         }
         throw last ?: FriendlyException("Модель недоступна.")
@@ -141,8 +142,9 @@ class BrainClient {
             body = body.toString(),
         )
         if (!res.ok) {
+            // 5xx у Gemini — чаще всего «модель перегружена»: пробуем следующую модель
             val modelProblem = res.code == 404 || (res.code == 400 && res.body.contains("model", ignoreCase = true)) ||
-                (res.code == 429 && s.brain.fallbackModels.isNotEmpty())
+                (res.code == 429 && s.brain.fallbackModels.isNotEmpty()) || res.code in 500..599
             if (modelProblem && s.models[s.brain]?.isNotBlank() == true && s.brain.fallbackModels.isNotEmpty()) {
                 throw ModelUnavailable(explain(res, s.brain))
             }
