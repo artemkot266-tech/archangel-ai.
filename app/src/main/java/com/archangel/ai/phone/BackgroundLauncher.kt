@@ -39,7 +39,7 @@ object BackgroundLauncher {
     fun launch(context: Context, intent: Intent, label: String): Way {
         val app = context.applicationContext
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (canOverlay(app)) {
+        if (com.archangel.ai.features.BackgroundHelp.canLaunchFromBackground(app)) {
             val ok = runCatching { viaOverlay(app, intent) }.isSuccess
             // Запасной вариант: тихое уведомление, само исчезнет через 15 секунд
             notify(app, intent, label, quiet = true)

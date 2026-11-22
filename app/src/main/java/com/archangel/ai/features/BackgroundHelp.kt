@@ -62,4 +62,29 @@ object BackgroundHelp {
             open(context, Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
         if (!ok) open(context, Intent(android.provider.Settings.ACTION_SETTINGS))
     }
+
+    fun isXiaomi(): Boolean {
+        val b = (android.os.Build.MANUFACTURER + " " + android.os.Build.BRAND).lowercase()
+        return "xiaomi" in b || "redmi" in b || "poco" in b
+    }
+
+    /**
+     * Xiaomi/HyperOS: разрешение «Отображать всплывающие окна в фоне» (служебная операция 10021).
+     * null — не Xiaomi или узнать нельзя.
+     */
+    fun xiaomiBackgroundStart(context: Context): Boolean? {
+        if (!isXiaomi()) return null
+        return runCatching {
+            val ops = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+            val m = android.app.AppOpsManager::class.java.getMethod(
+                "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
+            )
+            (m.invoke(ops, 10021, android.os.Process.myUid(), context.packageName) as Int) == android.app.AppOpsManager.MODE_ALLOWED
+        }.getOrNull()
+    }
+
+    fun overlayAllowed(context: Context) = android.provider.Settings.canDrawOverlays(context)
+
+    /** Можно ли открывать приложения, пока Архангел в фоне. */
+    fun canLaunchFromBackground(context: Context) = overlayAllowed(context) && (xiaomiBackgroundStart(context) ?: true)
 }

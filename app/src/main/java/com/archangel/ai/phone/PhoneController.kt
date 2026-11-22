@@ -39,8 +39,12 @@ class PhoneController(private val context: Context) {
             return when (BackgroundLauncher.launch(context, intent, label)) {
                 BackgroundLauncher.Way.OVERLAY -> true
                 BackgroundLauncher.Way.NOTIFICATION -> {
-                    note = "Телефон не даёт открыть приложение из фона — нажмите на уведомление. " +
-                        "Чтобы открывалось само: Настройки Архангела → Режим ожидания → кнопки 3 и 4."
+                    val missing = buildList {
+                        if (!com.archangel.ai.features.BackgroundHelp.overlayAllowed(context)) add("«Поверх других окон» (кнопка 3)")
+                        if (com.archangel.ai.features.BackgroundHelp.xiaomiBackgroundStart(context) == false) add("«Всплывающие окна в фоне» (кнопка 4)")
+                    }
+                    note = "Телефон не даёт открыть приложение из фона — нажмите на уведомление." +
+                        if (missing.isNotEmpty()) " Чтобы открывалось само, разрешите ${missing.joinToString(" и ")} в Настройках Архангела → Режим ожидания." else ""
                     true
                 }
                 BackgroundLauncher.Way.FAILED -> {

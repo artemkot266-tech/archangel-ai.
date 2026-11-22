@@ -261,9 +261,26 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 Pill("2. Автозапуск", onClick = { com.archangel.ai.features.BackgroundHelp.autostart(ctx) }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                Pill("3. Поверх других окон", onClick = { com.archangel.ai.features.BackgroundHelp.overlay(ctx) }, modifier = Modifier.fillMaxWidth())
+                // Состояние разрешений перечитываем при каждом возврате на экран
+                var tick by remember { mutableStateOf(0) }
+                val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                androidx.compose.runtime.DisposableEffect(owner) {
+                    val obs = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) tick++ }
+                    owner.lifecycle.addObserver(obs)
+                    onDispose { owner.lifecycle.removeObserver(obs) }
+                }
+                val overlayOk = remember(tick) { com.archangel.ai.features.BackgroundHelp.overlayAllowed(ctx) }
+                val popupOk = remember(tick) { com.archangel.ai.features.BackgroundHelp.xiaomiBackgroundStart(ctx) }
+                Pill((if (overlayOk) "✓ " else "") + "3. Поверх других окон", onClick = { com.archangel.ai.features.BackgroundHelp.overlay(ctx) },
+                    accent = !overlayOk, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                Pill("4. Всплывающие окна в фоне (Xiaomi)", onClick = { com.archangel.ai.features.BackgroundHelp.xiaomiPermissions(ctx) }, modifier = Modifier.fillMaxWidth())
+                Pill((if (popupOk == true) "✓ " else "") + "4. Всплывающие окна в фоне (Xiaomi)", onClick = { com.archangel.ai.features.BackgroundHelp.xiaomiPermissions(ctx) },
+                    accent = popupOk == false, modifier = Modifier.fillMaxWidth())
+                if (!overlayOk || popupOk == false) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Без отмеченных оранжевым пунктов YouTube, музыка и звонки голосом из фона не откроются — только через уведомление.",
+                        style = TextStyles.BodySmall, color = Ember)
+                }
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "3 и 4 нужны, чтобы из фона открывать YouTube, музыку, такси и звонки. В пункте 4 включите " +
