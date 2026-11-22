@@ -69,6 +69,12 @@ object CommandParser {
         Regex("^(открой|покажи)\\s+(настройки архангела|настройки приложения)$").find(s)
             ?.let { return PhoneAction.Screen(AppScreen.SETTINGS) }
 
+        // «Где телефон?» — громкий сигнал; «нашёл» — выключить
+        Regex("(?iu)^(где (же )?(мой |ты,? )?(телефон|телефончик|смартфон|мобильник|мобила)|где ты|ау|отзовись|подай голос|найди (мой )?(телефон|смартфон)|(я )?(потерял|потеряла) (свой |мой )?(телефон|смартфон)|позвони на (мой )?телефон)$")
+            .find(s)?.let { return PhoneAction.FindPhone(true) }
+        Regex("(?iu)^(нашел|нашла|нашли|я тебя нашел|я тебя нашла|хватит звонить|выключи сигнал|стоп сигнал)$")
+            .find(s)?.let { return PhoneAction.FindPhone(false) }
+
         // «Защитник»: проверка ссылок и подозрительных сообщений
         val hasUrl = Regex("(https?://|www\\.)\\S+").containsMatchIn(s)
         val guardWords = Regex("(ссылк|сайт|сообщени|смс|номер|развод|мошен|безопасн)").containsMatchIn(s)
@@ -390,6 +396,7 @@ object CommandParser {
             )
             "price_alert" -> PhoneAction.PriceAlert(o.getString("symbol").uppercase(), o.optDouble("price").takeIf { !it.isNaN() })
             "remember" -> PhoneAction.Remember(str("fact"))
+            "find_phone" -> PhoneAction.FindPhone(o.optBoolean("on", true))
             else -> null
         }
     } catch (e: Exception) {
@@ -417,6 +424,7 @@ object CommandParser {
 {"type":"reminder","text":"о чём","at":"2026-01-31T09:00"}
 {"type":"calendar","title":"событие","at":"2026-01-31T15:00"}
 {"type":"price_alert","symbol":"BTCUSDT","price":100000}
+{"type":"find_phone","on":true}  (пользователь ищет телефон: громкий сигнал; on:false — выключить)
 {"type":"remember","fact":"факт о пользователе — ТОЛЬКО если он сам попросил запомнить"}
 {"type":"market","symbol":"BTCUSDT"}
 {"type":"order","side":"BUY|SELL","symbol":"BTCUSDT","usdt":20}

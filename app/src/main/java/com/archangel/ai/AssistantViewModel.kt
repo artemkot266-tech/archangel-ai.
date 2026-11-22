@@ -30,6 +30,7 @@ import com.archangel.ai.features.CalendarHelper
 import com.archangel.ai.features.Guardian
 import com.archangel.ai.features.HomeAssistant
 import com.archangel.ai.features.ImageUtil
+import com.archangel.ai.features.PhoneFinder
 import com.archangel.ai.features.Weather
 import com.archangel.ai.market.AlertScheduler
 import com.archangel.ai.market.AlertStore
@@ -770,6 +771,22 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                         }.getOrNull()
                         if (opinion == null) local else "$local\n\nМнение ИИ: $opinion"
                     }
+                }
+            }
+            is PhoneAction.FindPhone -> {
+                val ctx = getApplication<Application>()
+                if (action.on) {
+                    val sound = PhoneFinder.start(ctx)
+                    // Не озвучиваем: голос перебил бы сигнал.
+                    reply(
+                        if (sound) "Я здесь! Звоню громко 30 секунд. Выключить — «Нашёл» в уведомлении или «нашёл» голосом."
+                        else "Я здесь! Звук включить не удалось — вибрирую 30 секунд.",
+                        speak = false,
+                    )
+                } else {
+                    val was = PhoneFinder.isRinging
+                    PhoneFinder.stop(ctx)
+                    reply(if (was) "Рад, что нашёлся." else "Сигнал и так выключен.", viaVoice)
                 }
             }
             PhoneAction.ReadMessages -> reply(
