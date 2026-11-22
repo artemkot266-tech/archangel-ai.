@@ -95,7 +95,7 @@ fun MarketScreen(
     var protect by rememberSaveable { mutableStateOf(false) }
     var stopPct by rememberSaveable { mutableIntStateOf(5) }
     var takePct by rememberSaveable { mutableIntStateOf(10) }
-    LaunchedEffect(Unit) { vm.reloadDca() }
+    LaunchedEffect(Unit) { vm.reloadDca(); vm.reloadPaper(); vm.reloadJournal(); vm.refreshTilt() }
 
     Column(
         modifier
@@ -618,6 +618,103 @@ fun MarketScreen(
         }
         Spacer(Modifier.height(8.dp))
         Pill("Обновить баланс", onClick = { vm.loadBalances() })
+        // ── Песочница
+        Spacer(Modifier.height(28.dp))
+        SectionHeader("03.7", "Песочница", trailing = "виртуальные $")
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Торговля на 1000 виртуальных долларов по живым ценам, комиссия 0,1% — как на бирже. Ключи не нужны. " +
+                "Голосом: «купи в песочнице биткоин на 100».",
+            style = TextStyles.BodySmall,
+        )
+        Spacer(Modifier.height(10.dp))
+        val eq = com.archangel.ai.market.PaperEngine.equity(vm.paper, vm.paperPrices + (vm.ticker?.let { mapOf(vm.symbol to it.last) } ?: emptyMap()))
+        val change = eq - vm.paper.start
+        Text(Indicators.formatPrice(eq) + " $", style = TextStyles.Digits.copy(fontSize = 28.sp))
+        MonoLabel(
+            "${com.archangel.ai.ui.market.signedUsd(change).removeSuffix(" USDT")} $ с начала · свободно ${Indicators.formatPrice(vm.paper.cash)} $",
+            color = if (change >= 0) Bone else Ember,
+        )
+        val positions = vm.paper.trades.map { it.symbol }.distinct()
+            .map { it to com.archangel.ai.market.PaperEngine.held(vm.paper, it) }.filter { it.second > 0 }
+        positions.forEach { (sym, q) ->
+            val px = vm.paperPrices[sym] ?: if (sym == vm.symbol) vm.ticker?.last else null
+            MonoLabel("${sym.removeSuffix("USDT")} · ${String.format(Locale.US, "%.6f", q).trimEnd('0').trimEnd('.')}" +
+                (px?.let { " · ${Indicators.formatPrice(q * it)} $" } ?: ""), color = Smoke)
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pill("Купить ${vm.symbol.removeSuffix("USDT")} на ${Indicators.formatPrice(usdt)} $", onClick = { vm.paperTrade(true, usdt) }, enabled = usdt > 0, modifier = Modifier.weight(1f), height = 42.dp)
+            Pill("Продать", onClick = { vm.paperTrade(false, usdt) }, enabled = usdt > 0, height = 42.dp)
+        }
+        if (vm.paperMessage.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(vm.paperMessage, style = TextStyles.BodySmall)
+        }
+        Spacer(Modifier.height(6.dp))
+        Chip("Обнулить песочницу", onClick = { vm.resetPaper() })
+
+        // ── Дневник и защита от эмоций
+        Spacer(Modifier.height(28.dp))
+        SectionHeader("03.8", "Дневник трейдера")
+        Spacer(Modifier.height(6.dp))
+        com.archangel.ai.ui.components.ToggleRow(
+            "Защита от эмоций",
+            settings.tiltGuard,
+            sub = "После трёх убыточных сделок подряд предложу паузу на сутки и буду напоминать перед каждой сделкой.",
+        ) { vm.setTiltGuard(it) }
+        if (vm.tiltUntil > 0) {
+            Spacer(Modifier.height(6.dp))
+            Panel(Modifier.fillMaxWidth()) {
+                Column {
+                    Text("Пауза до ${java.text.SimpleDateFormat("HH:mm d MMM", Locale("ru")).format(java.util.Date(vm.tiltUntil))}", style = TextStyles.Body, color = Ember)
+                    Text("Три сделки подряд в минус. Лучшее, что можно сделать сейчас, — ничего. Рынок никуда не денется.", style = TextStyles.BodySmall)
+                    Spacer(Modifier.height(6.dp))
+                    Chip("Закончить паузу", onClick = { vm.endPause() })
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("Каждая сделка попадает сюда. Допишите, почему вошли, — через пару недель станет видно, какие причины работают.", style = TextStyles.BodySmall)
+        val fmtJ = java.text.SimpleDateFormat("dd.MM HH:mm", Locale.US)
+        vm.journal.take(15).forEach { e ->
+            Spacer(Modifier.height(10.dp))
+            val now = vm.journalPrices[e.symbol]
+            val res = now?.let { (if (e.buy) (it - e.price) else (e.price - it)) / e.price * 100 }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${if (e.buy) "Покупка" else "Продажа"} ${e.symbol.removeSuffix("USDT")} · ${Indicators.formatPrice(e.price)}" + if (e.paper) " · песочница" else "",
+                    style = TextStyles.Body.copy(fontSize = 15.sp), modifier = Modifier.weight(1f),
+                )
+                res?.let { Text(String.format(Locale.US, "%+.1f%%", it), style = TextStyles.Mono, color = if (it >= 0) Bone else Ember) }
+            }
+            MonoLabel(fmtJ.format(java.util.Date(e.time)) + " · ${Indicators.formatPrice(e.usdt)} USDT", color = Smoke)
+            if (e.reason.isNotBlank()) Text("«${e.reason}»", style = TextStyles.BodySmall.copy(fontSize = 14.sp))
+            else {
+                var draft by rememberSaveable(e.id) { mutableStateOf("") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.weight(1f).border(1.dp, Hairline, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        if (draft.isEmpty()) Text("Почему вошли?", style = TextStyles.BodySmall, color = Smoke)
+                        BasicTextField(draft, { draft = it.take(200) }, textStyle = TextStyles.BodySmall.copy(color = Bone),
+                            cursorBrush = SolidColor(Ember), modifier = Modifier.fillMaxWidth())
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Chip("OK", onClick = { if (draft.isNotBlank()) vm.setReason(e.id, draft) })
+                }
+            }
+        }
+        if (vm.journal.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Pill(if (vm.reviewing) "Разбираю…" else "Разобрать дневник с ИИ", onClick = { vm.reviewJournal() },
+                enabled = !vm.reviewing, icon = Icons.Filled.AutoAwesome)
+            if (vm.journalReview.isNotBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Panel(Modifier.fillMaxWidth()) { SelectionContainer { Text(vm.journalReview, style = TextStyles.Body.copy(fontSize = 15.sp)) } }
+            }
+        }
+
         // ── Итоги
         if (settings.exchangeReady) {
             Spacer(Modifier.height(28.dp))

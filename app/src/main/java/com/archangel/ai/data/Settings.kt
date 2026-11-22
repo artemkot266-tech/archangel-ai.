@@ -111,6 +111,8 @@ data class AppSettings(
     /** Автосигналы раз в час по списку монет. */
     val signalsEnabled: Boolean = false,
     val watchlist: List<String> = DEFAULT_WATCHLIST,
+    /** Защита от эмоций: пауза после трёх убыточных сделок подряд. */
+    val tiltGuard: Boolean = true,
 ) {
     fun keyFor(b: Brain = brain) = keys[b].orEmpty()
     fun modelFor(b: Brain = brain) = models[b]?.takeIf { it.isNotBlank() } ?: b.defaultModel
@@ -178,6 +180,7 @@ class SettingsStore(context: Context) {
             signalsEnabled = prefs.getBoolean("signals", false),
             watchlist = (prefs.getString("watchlist", null) ?: AppSettings.DEFAULT_WATCHLIST.joinToString(","))
                 .split(',').map { it.trim().uppercase() }.filter { it.isNotEmpty() },
+            tiltGuard = prefs.getBoolean("tilt_guard", true),
         )
     }
 
@@ -227,6 +230,7 @@ class SettingsStore(context: Context) {
             putBoolean("bn_testnet", clean.binanceTestnet)
             putBoolean("signals", clean.signalsEnabled)
             putString("watchlist", clean.watchlist.distinct().joinToString(","))
+            putBoolean("tilt_guard", clean.tiltGuard)
         }.commit() // синхронно: фоновые приёмники (брифинг) читают эти же настройки
         _settings.value = clean
     }

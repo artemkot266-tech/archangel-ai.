@@ -34,6 +34,8 @@ sealed class PhoneAction {
     ) : PhoneAction() {
         override val needsConfirmation = true
     }
+    /** Сделка в песочнице — виртуальные доллары, без подтверждения. */
+    data class PaperOrder(val buy: Boolean, val symbol: String, val usdt: Double) : PhoneAction()
     /** Поставить стоп-лосс и тейк-профит на уже купленную монету (OCO). */
     data class Protect(val symbol: String, val stopPct: Double, val takePct: Double) : PhoneAction() {
         override val needsConfirmation = true

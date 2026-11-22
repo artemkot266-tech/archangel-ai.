@@ -124,6 +124,108 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── Песочница
+    private val paperStore = com.archangel.ai.market.PaperStore(app)
+    var paper by mutableStateOf(paperStore.load())
+        private set
+    var paperPrices by mutableStateOf<Map<String, Double>>(emptyMap())
+        private set
+    var paperMessage by mutableStateOf("")
+        private set
+
+    fun reloadPaper() {
+        paper = paperStore.load()
+        val symbols = paper.trades.map { it.symbol }.distinct()
+        if (symbols.isEmpty()) return
+        viewModelScope.launch {
+            paperPrices = runCatching { graph.binance.tickers(symbols) }.getOrDefault(emptyList()).associate { it.symbol to it.last }
+        }
+    }
+
+    fun paperTrade(buy: Boolean, usdt: Double) {
+        val price = ticker?.last ?: run { paperMessage = "Нет цены — обновите график."; return }
+        val res = if (buy) com.archangel.ai.market.PaperEngine.buy(paper, symbol, usdt, price)
+        else com.archangel.ai.market.PaperEngine.sell(paper, symbol, usdt, price)
+        if (res.error.isNotEmpty()) { paperMessage = res.error; return }
+        paperStore.save(res.state)
+        res.realized?.let { if (graph.settings.current.tiltGuard) com.archangel.ai.market.TiltGuard.record(graph, it) }
+        val t = res.trade!!
+        journalStore.add(com.archangel.ai.market.JournalEntry(System.currentTimeMillis(), t.time, symbol, buy, t.quote, price, "", true))
+        paperMessage = (if (buy) "Куплено " else "Продано ") + "%.6f".format(Locale.US, t.qty) + " ${symbol.removeSuffix("USDT")} по ${Indicators.formatPrice(price)}." +
+            (res.realized?.let { " Результат: ${if (it >= 0) "+" else "−"}${Indicators.formatPrice(kotlin.math.abs(it))} USDT." } ?: "")
+        reloadPaper(); reloadJournal(); refreshTilt()
+    }
+
+    fun resetPaper() { paper = paperStore.reset(); paperPrices = emptyMap(); paperMessage = "Песочница обнулена: 1000 виртуальных долларов." }
+
+    // ── Дневник
+    private val journalStore = com.archangel.ai.market.JournalStore(app)
+    var journal by mutableStateOf(journalStore.all())
+        private set
+    var journalPrices by mutableStateOf<Map<String, Double>>(emptyMap())
+        private set
+    var journalReview by mutableStateOf("")
+        private set
+    var reviewing by mutableStateOf(false)
+        private set
+
+    fun reloadJournal() {
+        journal = journalStore.all()
+        val symbols = journal.map { it.symbol }.distinct()
+        if (symbols.isEmpty()) return
+        viewModelScope.launch {
+            journalPrices = runCatching { graph.binance.tickers(symbols) }.getOrDefault(emptyList()).associate { it.symbol to it.last }
+        }
+    }
+
+    fun setReason(id: Long, reason: String) { journalStore.setReason(id, reason); reloadJournal() }
+    fun removeEntry(id: Long) { journalStore.remove(id); reloadJournal() }
+
+    /** ИИ смотрит дневник: какие причины входа приносили прибыль, а какие — нет. */
+    fun reviewJournal() {
+        val entries = journal.filter { it.reason.isNotBlank() }.take(60)
+        if (entries.size < 3) { journalReview = "Нужно хотя бы 3 записи с причинами — тогда будет что сравнить."; return }
+        reviewing = true
+        journalReview = ""
+        viewModelScope.launch {
+            try {
+                val fmt = SimpleDateFormat("dd.MM", Locale.US)
+                val lines = entries.joinToString("\n") { e ->
+                    val now = journalPrices[e.symbol]
+                    val res = now?.let { (if (e.buy) (it - e.price) else (e.price - it)) / e.price * 100 }
+                    "${fmt.format(Date(e.time))} ${if (e.buy) "покупка" else "продажа"} ${e.symbol} по ${Indicators.formatPrice(e.price)}" +
+                        (res?.let { " → сейчас ${"%+.1f".format(Locale.US, it)}%" } ?: "") +
+                        (if (e.paper) " (песочница)" else "") + ". Причина: ${e.reason}"
+                }
+                journalReview = graph.brain.ask(
+                    graph.settings.current,
+                    system = "Ты — тренер трейдера. Пиши по-русски, коротко и по-доброму, без markdown-таблиц.",
+                    turns = listOf(Turn("user",
+                        "Вот мой дневник сделок с причинами входа и результатом на сегодня:\n$lines\n\n" +
+                            "Сгруппируй причины по смыслу. Какие причины чаще дают плюс, какие — минус? " +
+                            "Какие 2–3 правила мне стоит себе поставить? Последней строкой: «Это не финансовый совет».")),
+                    maxTokens = 900,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: FriendlyException) {
+                journalReview = e.message.orEmpty()
+            } catch (e: Exception) {
+                journalReview = "Не удалось разобрать: ${e.javaClass.simpleName}"
+            } finally {
+                reviewing = false
+            }
+        }
+    }
+
+    // ── Защита от эмоций
+    var tiltUntil by mutableStateOf(0L)
+        private set
+
+    fun refreshTilt() { tiltUntil = com.archangel.ai.market.TiltGuard.activeUntil(graph) }
+    fun setTiltGuard(on: Boolean) { graph.settings.update { it.copy(tiltGuard = on) }; if (!on) { com.archangel.ai.market.TiltGuard.clear(graph); refreshTilt() } }
+    fun endPause() { com.archangel.ai.market.TiltGuard.clear(graph); refreshTilt() }
+
     // ── Открытые ордера
     var openOrders by mutableStateOf<List<com.archangel.ai.market.OpenOrder>>(emptyList())
         private set

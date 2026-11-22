@@ -288,6 +288,14 @@ object CommandParser {
             return PhoneAction.Navigate(it.groupValues[3].trim())
         }
 
+        // Песочница: «купи в песочнице биткоин на 100», «продай понарошку эфир на 50», «купи биткоин на 100 в песочнице»
+        Regex("^(купи|продай)\\s+(в песочнице\\s+|понарошку\\s+|на бумаге\\s+)?(\\S+)\\s+на\\s+([0-9]+(?:[.,][0-9]+)?)(.*)$").find(s)?.let { m ->
+            val paper = m.groupValues[2].isNotBlank() || Regex("в песочнице|понарошку|на бумаге").containsMatchIn(m.groupValues[5])
+            val symbol = coinToSymbol(m.groupValues[3])
+            val amount = m.groupValues[4].replace(',', '.').toDoubleOrNull()
+            if (paper && symbol != null && amount != null && amount > 0) return PhoneAction.PaperOrder(m.groupValues[1] == "купи", symbol, amount)
+        }
+
         // Регулярные покупки (DCA): «покупай эфир на 10 долларов каждый понедельник»
         Regex("^(покупай|докупай|закупай)\\s+(\\S+)\\s+на\\s+([0-9]+(?:[.,][0-9]+)?)\\D*?(каждый|каждую|каждое|по)\\s+(\\S+)").find(s)?.let { m ->
             val symbol = coinToSymbol(m.groupValues[2])
@@ -535,6 +543,7 @@ object CommandParser {
             "remember" -> PhoneAction.Remember(str("fact"))
             "find_phone" -> PhoneAction.FindPhone(o.optBoolean("on", true))
             "market_summary" -> PhoneAction.MarketSummary
+            "paper_order" -> PhoneAction.PaperOrder(o.optString("side").uppercase() != "SELL", o.getString("symbol").uppercase(), o.getDouble("usdt"))
             "profit" -> PhoneAction.Profit(o.optInt("days", 30))
             "protect" -> PhoneAction.Protect(o.getString("symbol").uppercase(), o.optDouble("stop", 5.0) / 100, o.optDouble("take", 10.0) / 100)
             "cancel_orders" -> PhoneAction.CancelOrders(str("symbol")?.uppercase())
@@ -574,6 +583,7 @@ object CommandParser {
 {"type":"remember","fact":"факт о пользователе — ТОЛЬКО если он сам попросил запомнить"}
 {"type":"market","symbol":"BTCUSDT"}
 {"type":"order","side":"BUY|SELL","symbol":"BTCUSDT","usdt":20,"price":90000,"stop":5,"take":10}  (price — лимитная цена, stop/take — проценты защиты; необязательны)
+{"type":"paper_order","side":"BUY|SELL","symbol":"BTCUSDT","usdt":100}  (песочница — виртуальные деньги)
 {"type":"protect","symbol":"BTCUSDT","stop":5,"take":10}  (стоп-лосс и тейк-профит на купленную монету)
 {"type":"cancel_orders","symbol":"BTCUSDT"}
 {"type":"dca","symbol":"ETHUSDT","usdt":10,"weekday":"понедельник|день"}

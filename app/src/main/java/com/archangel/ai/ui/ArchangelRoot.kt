@@ -208,6 +208,9 @@ fun ArchangelRoot(
     LaunchedEffect(vm.marketRequest) {
         vm.marketRequest?.let { market.select(it); vm.marketRequest = null }
     }
+    LaunchedEffect(vm.journalVersion, vm.paperVersion, vm.dcaVersion) {
+        market.reloadJournal(); market.reloadPaper(); market.reloadDca(); market.refreshTilt()
+    }
     LaunchedEffect(vm.lessonRequest) {
         vm.lessonRequest?.let { market.academy = it; vm.lessonRequest = null }
     }

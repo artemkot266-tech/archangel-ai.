@@ -155,6 +155,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         data class CalTitle(val at: Long?) : Ask()
         data class CalTime(val title: String) : Ask()
         object Confirm : Ask()
+        data class JournalReason(val id: Long) : Ask()
     }
 
     private var awaiting: Ask? = null
@@ -187,6 +188,20 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     private fun resolveAwaiting(text: String, viaVoice: Boolean): Boolean {
         val a = awaiting ?: return false
         awaiting = null
+        if (a is Ask.JournalReason) {
+            val t = CommandParser.cleanAnswer(text, wakeNames()).trim()
+            val low = t.lowercase()
+            if (t.isEmpty() || CommandParser.isCancel(t) || low.startsWith("пропусти") || low.startsWith("не знаю") || low == "нет") {
+                reply("Хорошо, без причины.", viaVoice)
+                return true
+            }
+            // Сказали команду, а не причину — выполняем её как обычно
+            if (CommandParser.parse(text, wakeNames()) != null) return false
+            journal.setReason(a.id, t)
+            journalVersion++
+            reply("Записал в дневник.", viaVoice)
+            return true
+        }
         if (CommandParser.isCancel(text)) {
             reply("Хорошо, отменил.", viaVoice)
             return true
@@ -233,7 +248,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                         if (realMoney) {
                             awaiting = null
                             reply("Сделки на реальном счёте подтверждаются только кнопкой на экране.", viaVoice)
-                        } else confirmPending()
+                        } else confirmPending(viaVoice = viaVoice)
                     }
                     else -> cancelPending()
                 }
@@ -627,11 +642,31 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                     PendingAction(
                         action = action,
                         title = (if (action.buy) "Купить " else "Продать ") + action.symbol.removeSuffix("USDT"),
-                        details = "$kind на ${Indicators.formatPrice(action.usdt)} USDT · ${action.symbol}$shield\nРежим: $mode",
+                        details = tiltWarning() + "$kind на ${Indicators.formatPrice(action.usdt)} USDT · ${action.symbol}$shield\nРежим: $mode",
                         danger = !s.binanceTestnet,
                     ),
                     viaVoice,
                 )
+            }
+            is PhoneAction.PaperOrder -> background(viaVoice) {
+                val store = com.archangel.ai.market.PaperStore(graph)
+                val price = graph.binance.ticker(action.symbol).last
+                val st = store.load()
+                val res = if (action.buy) com.archangel.ai.market.PaperEngine.buy(st, action.symbol, action.usdt, price)
+                else com.archangel.ai.market.PaperEngine.sell(st, action.symbol, action.usdt, price)
+                if (res.error.isNotEmpty()) res.error
+                else {
+                    store.save(res.state)
+                    paperVersion++
+                    res.realized?.let { if (settings.value.tiltGuard) com.archangel.ai.market.TiltGuard.record(graph, it) }
+                    val t = res.trade!!
+                    noteTrade(action.symbol, action.buy, t.quote, price, paper = true)
+                    confirmViaVoice = viaVoice
+                    val coin = action.symbol.removeSuffix("USDT")
+                    tiltWarning() + "Песочница: ${if (action.buy) "куплено" else "продано"} ${"%.6f".format(Locale.US, t.qty)} $coin " +
+                        "по ${Indicators.formatPrice(price)}. Остаток: ${Indicators.formatPrice(res.state.cash)} виртуальных долларов." +
+                        (res.realized?.let { " Результат сделки: ${if (it >= 0) "+" else "−"}${Indicators.formatPrice(kotlin.math.abs(it))} USDT." } ?: "")
+                }
             }
             is PhoneAction.Protect -> {
                 val s = settings.value
@@ -908,7 +943,9 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         core = CoreState.THINKING
         viewModelScope.launch {
             try {
-                reply(block(), viaVoice)
+                val text = block()
+                if (journalPending != null && viaVoice) askJournal(true, prefix = text)
+                else { journalPending = null; reply(text, viaVoice) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: FriendlyException) {
@@ -1054,7 +1091,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Пользователь нажал «Да». [onOrderDone] — чтобы «Рынок» обновил баланс. */
-    fun confirmPending(onOrderDone: () -> Unit = {}) {
+    fun confirmPending(onOrderDone: () -> Unit = {}, viaVoice: Boolean = false) {
+        confirmViaVoice = viaVoice
         if (awaiting == Ask.Confirm) awaiting = null
         val p = pending ?: return
         pending = null
@@ -1083,6 +1121,43 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     /** Версия списка планов покупки — чтобы «Рынок» перечитал его после голосовой команды. */
     var dcaVersion by mutableStateOf(0)
 
+    // ── Дневник и защита от эмоций
+    private val journal = com.archangel.ai.market.JournalStore(app)
+    /** Меняется, когда дневник или песочница обновились — «Рынок» перечитывает их. */
+    var journalVersion by mutableStateOf(0)
+    var paperVersion by mutableStateOf(0)
+    private var confirmViaVoice = false
+    private var journalPending: com.archangel.ai.market.JournalEntry? = null
+
+    private fun noteTrade(symbol: String, buy: Boolean, usdt: Double, price: Double, paper: Boolean) {
+        val e = com.archangel.ai.market.JournalEntry(System.currentTimeMillis(), System.currentTimeMillis(), symbol, buy, usdt, price, "", paper)
+        journal.add(e)
+        journalVersion++
+        journalPending = e
+    }
+
+    private fun askJournal(viaVoice: Boolean = confirmViaVoice, prefix: String = "") {
+        val e = journalPending ?: return
+        journalPending = null
+        val verb = if (e.buy) "купили" else "продали"
+        val q = "Для дневника: почему вы $verb ${e.symbol.removeSuffix("USDT")}? Одной фразой — или скажите «пропусти»."
+        ask(Ask.JournalReason(e.id), if (prefix.isBlank()) q else "$prefix $q", viaVoice)
+    }
+
+    private fun tiltWarning(): String {
+        if (!settings.value.tiltGuard) return ""
+        val until = com.archangel.ai.market.TiltGuard.activeUntil(graph)
+        if (until == 0L) return ""
+        return "⚠ Три убыточные сделки подряд. Предлагаю паузу до ${SimpleDateFormat("HH:mm d MMM", Locale("ru")).format(Date(until))} — решение за вами.\n"
+    }
+
+    /** После продажи: прибыль этой сделки — в защиту от эмоций. */
+    private suspend fun recordSellResult(symbol: String, s: AppSettings) {
+        if (!s.tiltGuard) return
+        val trades = runCatching { graph.binance.myTrades(symbol, s.binanceKey, s.binanceSecret, s.binanceTestnet) }.getOrNull() ?: return
+        com.archangel.ai.market.Pnl.coin(symbol, trades, 0.0).second.lastOrNull()?.let { com.archangel.ai.market.TiltGuard.record(graph, it.second) }
+    }
+
     /** Общая обёртка для операций с биржей: ошибки — заметкой в чат, успех — ответом. */
     private fun trade(onDone: () -> Unit, block: suspend (AppSettings) -> String) {
         val s = settings.value
@@ -1092,6 +1167,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 val text = block(s)
                 reply(text + if (s.binanceTestnet) " · демо-счёт" else "", speak = false)
                 onDone()
+                // Голосом — спрашиваем причину сразу; кнопкой — причину можно дописать в дневнике на экране «Рынок»
+                if (confirmViaVoice) askJournal(true) else journalPending = null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: FriendlyException) {
@@ -1111,10 +1188,13 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             val r = graph.binance.limitOrder(a.symbol, a.buy, limit, a.usdt, s.binanceKey, s.binanceSecret, s.binanceTestnet)
             val note = if (a.buy && (a.stopPct != null || a.takePct != null))
                 " Защиту можно поставить после исполнения: «защити $coin» или кнопкой в портфеле." else ""
+            noteTrade(a.symbol, a.buy, a.usdt, limit, paper = false)
             "Лимитный ордер выставлен: ${if (a.buy) "купить" else "продать"} ${"%.6f".format(Locale.US, r.executedQty)} $coin " +
                 "по ${Indicators.formatPrice(limit)}. Он исполнится, когда цена дойдёт до этого уровня.$note"
         } else {
             val r = graph.binance.marketOrder(a.symbol, a.buy, a.usdt, s.binanceKey, s.binanceSecret, s.binanceTestnet)
+            noteTrade(a.symbol, a.buy, r.quoteQty.takeIf { it > 0 } ?: a.usdt, r.avgPrice, paper = false)
+            if (!a.buy) recordSellResult(a.symbol, s)
             val verb = if (a.buy) "Куплено" else "Продано"
             val base = "$verb ${"%.6f".format(Locale.US, r.executedQty)} $coin на ${Indicators.formatPrice(r.quoteQty)} USDT " +
                 "(средняя ${Indicators.formatPrice(r.avgPrice)})."
