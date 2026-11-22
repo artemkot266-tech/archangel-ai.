@@ -86,6 +86,16 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     var navigateTo by mutableStateOf<AppScreen?>(null)
     /** Монета, которую попросили показать голосом. */
     var marketRequest by mutableStateOf<String?>(null)
+
+    // ───────────── Режим бога ─────────────
+    var godMode by mutableStateOf(false)
+        private set
+    var godRole by mutableStateOf(com.archangel.ai.ai.GodRole.SAGE)
+        private set
+
+    fun setGod(on: Boolean, viaVoice: Boolean = false) = handle(PhoneAction.GodMode(on), viaVoice)
+    fun setGodRole(role: com.archangel.ai.ai.GodRole) = handle(PhoneAction.GodRoleSet(role.name), viaVoice = false)
+    fun godSummary() = handle(PhoneAction.GodSummary, viaVoice = false)
     /** Урок, который попросили открыть голосом ("" — список уроков). */
     var lessonRequest by mutableStateOf<String?>(null)
 
@@ -573,6 +583,13 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     fun send(raw: String, fromVoice: Boolean = false) {
         val text = raw.trim()
+        // Режим бога: «хватит», «стоп» — закончить разговор без касаний (сам режим остаётся)
+        if (godMode && awaiting == null && Regex("^(хватит|стоп|достаточно|пока|спасибо,? (это )?вс[её]|на этом вс[её])[.!]?$").matches(text.lowercase())) {
+            add(Role.USER, text)
+            autoListen = false
+            reply("Хорошо. Я рядом — позовите, когда понадоблюсь.", fromVoice)
+            return
+        }
         val image = pendingImage
         if (text.isEmpty() && image == null) return
         if (!fromVoice) draft = ""
@@ -612,11 +629,15 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                         if (i == recent.lastIndex) imageB64 else null,
                     )
                 }
-                val reply = graph.brain.ask(s, systemPrompt(s), history)
+                val reply = graph.brain.ask(s, systemPrompt(s), history, maxTokens = if (godMode) com.archangel.ai.ai.GodMode.MAX_TOKENS else 1024)
                 val (clean, action) = CommandParser.extractActionTag(reply)
                 if (clean.isNotBlank()) {
                     add(Role.ASSISTANT, clean)
-                    say(clean)
+                    if (godMode) {
+                        // Вслух — главное, подробности на экране; в голосовом разговоре сразу слушаем дальше
+                        autoListen = viaVoice && action == null
+                        say(com.archangel.ai.ai.GodMode.spoken(clean))
+                    } else say(clean)
                 } else core = CoreState.IDLE
                 action?.let { handle(it, viaVoice) }
             } catch (e: CancellationException) {
@@ -647,6 +668,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             appendLine("Ты работаешь в Android-приложении ARCHANGEL AI на телефоне пользователя. Сейчас: $now.")
             appendLine("Если просьба неоднозначна — задай один короткий уточняющий вопрос, а не угадывай.")
             appendLine("Не используй markdown-таблицы. Если вопрос про трейдинг — помогай по существу, но помни, что это не финансовый совет.")
+            if (godMode) append(com.archangel.ai.ai.GodMode.prompt(godRole))
             appendLine()
             append(CommandParser.ACTION_PROMPT)
         }
@@ -896,6 +918,40 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                     val plans = com.archangel.ai.market.DcaStore(graph).all().map { it.symbol }
                     val r = com.archangel.ai.market.PnlLoader.load(graph.binance, s, plans, action.days)
                     com.archangel.ai.market.PnlLoader.spoken(r, action.days) + if (s.binanceTestnet) " Это демо-счёт." else ""
+                }
+            }
+            is PhoneAction.GodMode -> {
+                godMode = action.on
+                if (action.on) {
+                    godRole = com.archangel.ai.ai.GodRole.SAGE
+                    reply(
+                        "Режим бога активирован. Думаю глубже, а в голосовом разговоре слушаю без касаний — " +
+                            "говорите «хватит», чтобы закончить. Роли: мудрец, решатель, учитель, коуч, собеседник, " +
+                            "генератор идей, критик, репетитор английского — скажите «стань учителем». " +
+                            "«Подведи итог» — резюме и важное в память. Выход — «обычный режим».",
+                        viaVoice,
+                    )
+                    if (viaVoice) autoListen = true
+                } else reply("Обычный режим.", viaVoice)
+            }
+            is PhoneAction.GodRoleSet -> {
+                val role = runCatching { com.archangel.ai.ai.GodRole.valueOf(action.role) }.getOrDefault(com.archangel.ai.ai.GodRole.SAGE)
+                godMode = true
+                godRole = role
+                reply("Роль: ${role.title}. ${role.intro}", viaVoice)
+                if (viaVoice) autoListen = true
+            }
+            PhoneAction.GodSummary -> {
+                if (messages.count { it.role != Role.NOTE } < 3) reply("Пока нечего подводить — давайте поговорим.", viaVoice)
+                else background(viaVoice) {
+                    val s = settings.value
+                    val recent = messages.filter { it.role != Role.NOTE }.takeLast(30)
+                        .map { Turn(if (it.fromUser) "user" else "assistant", it.text) } + Turn("user", com.archangel.ai.ai.GodMode.SUMMARY_PROMPT)
+                    val raw = graph.brain.ask(s, systemPrompt(s), recent, maxTokens = 1200)
+                    val (body, facts) = com.archangel.ai.ai.GodMode.splitSummary(CommandParser.extractActionTag(raw).first)
+                    facts.forEach { memory.add(it) }
+                    if (facts.isNotEmpty()) memoryFacts = memory.facts()
+                    body + if (facts.isNotEmpty()) "\n\nЗапомнил: " + facts.joinToString("; ") + "." else ""
                 }
             }
             PhoneAction.MarketSummary -> background(viaVoice) {

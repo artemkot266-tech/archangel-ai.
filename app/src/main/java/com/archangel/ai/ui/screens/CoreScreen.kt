@@ -64,6 +64,11 @@ fun CoreScreen(
     lastReply: ChatMessage?,
     onCoreTap: () -> Unit,
     onQuickCommand: (String) -> Unit,
+    godMode: Boolean = false,
+    godRole: com.archangel.ai.ai.GodRole = com.archangel.ai.ai.GodRole.SAGE,
+    onGod: (Boolean) -> Unit = {},
+    onGodRole: (com.archangel.ai.ai.GodRole) -> Unit = {},
+    onGodSummary: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
@@ -98,9 +103,15 @@ fun CoreScreen(
 
         Spacer(Modifier.height(28.dp))
         // ── Приветствие: живой «человеческий» голос интерфейса
-        Text(greeting(now), style = TextStyles.Display)
-        Spacer(Modifier.height(6.dp))
-        MonoLabel(SimpleDateFormat("EEE · d MMMM · HH:mm", Locale("ru")).format(Date(now)))
+        if (godMode) {
+            Text("Режим бога.", style = TextStyles.Display, color = Ember)
+            Spacer(Modifier.height(6.dp))
+            MonoLabel("роль · ${godRole.title} · говорите — я слушаю без касаний", color = Ash)
+        } else {
+            Text(greeting(now), style = TextStyles.Display)
+            Spacer(Modifier.height(6.dp))
+            MonoLabel(SimpleDateFormat("EEE · d MMMM · HH:mm", Locale("ru")).format(Date(now)))
+        }
 
         // ── Сфера
         Box(
@@ -115,7 +126,9 @@ fun CoreScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(ORB_ASPECT),
-                theme = settings.orbTheme,
+                // В режиме бога сфера становится жидким золотом (или платиной, если золото уже выбрано)
+                theme = if (godMode) (if (settings.orbTheme == com.archangel.ai.data.OrbTheme.GOLD) com.archangel.ai.data.OrbTheme.PLATINUM else com.archangel.ai.data.OrbTheme.GOLD)
+                else settings.orbTheme,
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onCoreTap()
@@ -142,7 +155,8 @@ fun CoreScreen(
         val caption = when {
             partial.isNotBlank() -> "«$partial»"
             hint.isNotBlank() -> hint
-            state == CoreState.IDLE && settings.standby -> "Режим ожидания: скажите «${settings.wakeName}» — и команду"
+            state == CoreState.IDLE && godMode && lastReply == null -> godRole.intro
+            state == CoreState.IDLE && settings.standby && !godMode -> "Режим ожидания: скажите «${settings.wakeName}» — и команду"
             state == CoreState.IDLE && lastReply != null -> lastReply.text
             else -> state.hint
         }
@@ -165,8 +179,17 @@ fun CoreScreen(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listOf("График биткоина", "Таймер на 5 минут", "Включи фонарик", "Что нового в мире ИИ?")
-                .forEach { Chip(it, onClick = { onQuickCommand(it) }) }
+            if (godMode) {
+                Chip("Обычный режим", onClick = { onGod(false) })
+                Chip("Подведи итог", onClick = onGodSummary)
+                com.archangel.ai.ai.GodRole.entries.forEach { r ->
+                    Chip(r.title, onClick = { onGodRole(r) }, selected = r == godRole)
+                }
+            } else {
+                Chip("⚡ Режим бога", onClick = { onGod(true) }, selected = true)
+                listOf("График биткоина", "Таймер на 5 минут", "Включи фонарик", "Что нового в мире ИИ?")
+                    .forEach { Chip(it, onClick = { onQuickCommand(it) }) }
+            }
         }
         Spacer(Modifier.height(16.dp))
     }

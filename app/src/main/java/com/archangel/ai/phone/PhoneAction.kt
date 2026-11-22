@@ -72,6 +72,12 @@ sealed class PhoneAction {
     object Portfolio : PhoneAction()
     /** «Сколько я заработал за неделю?» days: 7/30/0 (всё время). */
     data class Profit(val days: Int) : PhoneAction()
+    /** Режим бога: «Архангел, апгрейд» — включить, «обычный режим» — выключить. */
+    data class GodMode(val on: Boolean) : PhoneAction()
+    /** Роль в режиме бога: «стань учителем». id — имя GodRole. */
+    data class GodRoleSet(val role: String) : PhoneAction()
+    /** «Подведи итог» — резюме разговора и важное в память. */
+    object GodSummary : PhoneAction()
     /** «Что с рынком?» — голосовая сводка по монетам, индексу страха и портфелю. */
     object MarketSummary : PhoneAction()
     /** Урок из раздела «Обучение». id = null — открыть список уроков. */

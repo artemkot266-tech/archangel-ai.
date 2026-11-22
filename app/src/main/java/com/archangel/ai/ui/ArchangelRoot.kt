@@ -295,6 +295,11 @@ fun ArchangelRoot(
                             if (vm.core == CoreState.IDLE) listen() else vm.onCoreTap()
                         },
                         onQuickCommand = { vm.send(it) },
+                        godMode = vm.godMode,
+                        godRole = vm.godRole,
+                        onGod = { vm.setGod(it) },
+                        onGodRole = { vm.setGodRole(it) },
+                        onGodSummary = { vm.godSummary() },
                     )
                     AppScreen.CHAT -> ChatScreen(
                         messages = vm.messages,
