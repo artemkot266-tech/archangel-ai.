@@ -83,13 +83,17 @@ import com.archangel.ai.ui.theme.TextStyles
 
 /** Что открыть при запуске из ярлыка. */
 enum class LaunchAction {
-    VOICE, MARKET, BRIEFING;
+    VOICE, MARKET, BRIEFING, DCA;
 
     companion object {
         fun from(intent: android.content.Intent?): LaunchAction? = when (intent?.action) {
             "com.archangel.ai.action.VOICE" -> VOICE
             "com.archangel.ai.action.MARKET" -> MARKET
             "com.archangel.ai.action.BRIEFING" -> BRIEFING
+            com.archangel.ai.market.DcaScheduler.ACTION -> {
+                com.archangel.ai.market.DcaScheduler.pendingPlan = intent.getLongExtra("plan_id", -1)
+                DCA
+            }
             else -> null
         }
     }
@@ -214,6 +218,14 @@ fun ArchangelRoot(
                 if (vm.core != CoreState.LISTENING) listen()
             }
             LaunchAction.MARKET -> screen = AppScreen.MARKET
+            LaunchAction.DCA -> {
+                screen = AppScreen.MARKET
+                val id = com.archangel.ai.market.DcaScheduler.pendingPlan
+                com.archangel.ai.market.DcaScheduler.pendingPlan = null
+                com.archangel.ai.market.DcaStore(context).all().firstOrNull { it.id == id }?.let { plan ->
+                    vm.request(PhoneAction.Order(buy = true, symbol = plan.symbol, usdt = plan.usdt))
+                }
+            }
             LaunchAction.BRIEFING -> {
                 screen = AppScreen.CORE
                 vm.briefing()

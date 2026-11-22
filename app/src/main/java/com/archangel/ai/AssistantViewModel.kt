@@ -228,7 +228,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 when {
                     p == null -> {}
                     isYes(text) || Regex("^(подтверждаю|звони|отправляй|покупай|продавай|выполняй)").containsMatchIn(text.lowercase()) -> {
-                        val realMoney = p.action is PhoneAction.Order && !settings.value.binanceTestnet
+                        val exchangeAction = p.action is PhoneAction.Order || p.action is PhoneAction.Protect || p.action is PhoneAction.CancelOrders
+                        val realMoney = exchangeAction && !settings.value.binanceTestnet
                         if (realMoney) {
                             awaiting = null
                             reply("Сделки на реальном счёте подтверждаются только кнопкой на экране.", viaVoice)
@@ -616,13 +617,54 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             is PhoneAction.Order -> {
                 val s = settings.value
                 val mode = if (s.binanceTestnet) "ДЕМО-СЧЁТ — ненастоящие деньги" else "РЕАЛЬНЫЙ СЧЁТ"
+                val kind = action.limitPrice?.let { "Лимитный ордер по ${Indicators.formatPrice(it)}" } ?: "Рыночный ордер"
+                val shield = if (action.stopPct != null || action.takePct != null) {
+                    val st = action.stopPct ?: 0.05; val tk = action.takePct ?: 0.10
+                    "\nЗащита после покупки: стоп −${pct(st)}, цель +${pct(tk)}" +
+                        "\nРиск: ≈${Indicators.formatPrice(com.archangel.ai.market.OrderMath.riskUsd(action.usdt, st))} USDT"
+                } else ""
                 requestConfirmation(
                     PendingAction(
                         action = action,
                         title = (if (action.buy) "Купить " else "Продать ") + action.symbol.removeSuffix("USDT"),
-                        details = "Рыночный ордер на ${Indicators.formatPrice(action.usdt)} USDT · ${action.symbol}\nРежим: $mode",
+                        details = "$kind на ${Indicators.formatPrice(action.usdt)} USDT · ${action.symbol}$shield\nРежим: $mode",
                         danger = !s.binanceTestnet,
                     ),
+                    viaVoice,
+                )
+            }
+            is PhoneAction.Protect -> {
+                val s = settings.value
+                requestConfirmation(
+                    PendingAction(
+                        action = action,
+                        title = "Защитить ${action.symbol.removeSuffix("USDT")}",
+                        details = "Стоп-лосс −${pct(action.stopPct)} и тейк-профит +${pct(action.takePct)} от текущей цены на весь свободный остаток монеты (OCO-ордер)." +
+                            "\nРежим: ${if (s.binanceTestnet) "ДЕМО-СЧЁТ" else "РЕАЛЬНЫЙ СЧЁТ"}",
+                        danger = !s.binanceTestnet,
+                    ),
+                    viaVoice,
+                )
+            }
+            is PhoneAction.CancelOrders -> {
+                val sym = action.symbol
+                if (sym == null) {
+                    navigateTo = AppScreen.MARKET
+                    reply("Открытые ордера — в разделе «Рынок». Скажите, по какой монете отменить: например, «отмени ордера по биткоину».", viaVoice)
+                } else requestConfirmation(
+                    PendingAction(action, "Отменить ордера ${sym.removeSuffix("USDT")}", "Все открытые ордера по паре $sym, включая стоп-лоссы.", danger = false),
+                    viaVoice,
+                )
+            }
+            is PhoneAction.DcaAdd -> {
+                val plan = com.archangel.ai.market.DcaPlan(System.currentTimeMillis(), action.symbol, action.usdt, action.weekday)
+                com.archangel.ai.market.DcaStore(graph).add(plan)
+                com.archangel.ai.market.DcaScheduler.schedule(graph, plan)
+                needNotificationPermission = true
+                dcaVersion++
+                reply(
+                    "План создан: ${plan.coin} на ${Indicators.formatPrice(plan.usdt)} USDT ${plan.schedule}. " +
+                        "В это время пришлю уведомление — покупка только после вашего подтверждения.",
                     viaVoice,
                 )
             }
@@ -977,6 +1019,10 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 is PhoneAction.Call -> ": ${a.target}"
                 is PhoneAction.Sms -> " для ${a.target}"
                 is PhoneAction.Order -> " на ${Indicators.formatPrice(a.usdt)} долларов" +
+                    (a.limitPrice?.let { " по цене ${Indicators.formatPrice(it)}" } ?: "") +
+                    (if (a.stopPct != null) " с защитой" else "") +
+                    if (settings.value.binanceTestnet) " на демо-счёте" else " на РЕАЛЬНОМ счёте — подтвердите кнопкой на экране"
+                is PhoneAction.Protect, is PhoneAction.CancelOrders ->
                     if (settings.value.binanceTestnet) " на демо-счёте" else " на РЕАЛЬНОМ счёте — подтвердите кнопкой на экране"
                 else -> ""
             }) + "? Скажите «да» или «нет»."
@@ -997,32 +1043,74 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         pending = null
         when (val a = p.action) {
             is PhoneAction.Order -> placeOrder(a, onOrderDone)
+            is PhoneAction.Protect -> trade(onOrderDone) { s ->
+                val coin = a.symbol.removeSuffix("USDT")
+                val qty = graph.binance.free(coin, s.binanceKey, s.binanceSecret, s.binanceTestnet)
+                if (qty <= 0) throw FriendlyException("На счёте нет свободных $coin (возможно, они уже в ордерах).")
+                val price = graph.binance.ticker(a.symbol).last
+                val (sl, tp) = com.archangel.ai.market.OrderMath.protection(price, a.stopPct, a.takePct)
+                graph.binance.protect(a.symbol, qty, tp, sl, s.binanceKey, s.binanceSecret, s.binanceTestnet)
+                "Защита стоит: $coin продастся по ${Indicators.formatPrice(tp)} (цель) или ${Indicators.formatPrice(sl)} (стоп)."
+            }
+            is PhoneAction.CancelOrders -> trade(onOrderDone) { s ->
+                val sym = a.symbol ?: throw FriendlyException("Не указана монета.")
+                graph.binance.cancelAll(sym, s.binanceKey, s.binanceSecret, s.binanceTestnet)
+                "Открытые ордера по ${sym.removeSuffix("USDT")} отменены."
+            }
             else -> reply(graph.phone.execute(a), speak = false)
         }
     }
 
-    private fun placeOrder(a: PhoneAction.Order, onDone: () -> Unit) {
+    private fun pct(v: Double) = String.format(Locale.US, "%.1f", v * 100).removeSuffix(".0") + "%"
+
+    /** Версия списка планов покупки — чтобы «Рынок» перечитал его после голосовой команды. */
+    var dcaVersion by mutableStateOf(0)
+
+    /** Общая обёртка для операций с биржей: ошибки — заметкой в чат, успех — ответом. */
+    private fun trade(onDone: () -> Unit, block: suspend (AppSettings) -> String) {
         val s = settings.value
         core = CoreState.THINKING
         viewModelScope.launch {
             try {
-                val r = graph.binance.marketOrder(a.symbol, a.buy, a.usdt, s.binanceKey, s.binanceSecret, s.binanceTestnet)
-                val coin = a.symbol.removeSuffix("USDT")
-                val verb = if (a.buy) "Куплено" else "Продано"
-                val tag = if (s.binanceTestnet) " · демо-счёт" else ""
-                reply(
-                    "$verb ${"%.6f".format(Locale.US, r.executedQty)} $coin на ${Indicators.formatPrice(r.quoteQty)} USDT " +
-                        "(средняя ${Indicators.formatPrice(r.avgPrice)}). Статус: ${r.status}$tag.",
-                    speak = false,
-                )
+                val text = block(s)
+                reply(text + if (s.binanceTestnet) " · демо-счёт" else "", speak = false)
                 onDone()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: FriendlyException) {
-                add(Role.NOTE, "Ордер не выполнен. ${e.message}")
+                add(Role.NOTE, "Не выполнено. ${e.message}")
                 core = CoreState.IDLE
             } catch (e: Exception) {
-                add(Role.NOTE, "Ордер не выполнен: ${e.javaClass.simpleName}")
+                add(Role.NOTE, "Не выполнено: ${e.javaClass.simpleName}")
                 core = CoreState.IDLE
             }
+        }
+    }
+
+    private fun placeOrder(a: PhoneAction.Order, onDone: () -> Unit) = trade(onDone) { s ->
+        val coin = a.symbol.removeSuffix("USDT")
+        val limit = a.limitPrice
+        if (limit != null) {
+            val r = graph.binance.limitOrder(a.symbol, a.buy, limit, a.usdt, s.binanceKey, s.binanceSecret, s.binanceTestnet)
+            val note = if (a.buy && (a.stopPct != null || a.takePct != null))
+                " Защиту можно поставить после исполнения: «защити $coin» или кнопкой в портфеле." else ""
+            "Лимитный ордер выставлен: ${if (a.buy) "купить" else "продать"} ${"%.6f".format(Locale.US, r.executedQty)} $coin " +
+                "по ${Indicators.formatPrice(limit)}. Он исполнится, когда цена дойдёт до этого уровня.$note"
+        } else {
+            val r = graph.binance.marketOrder(a.symbol, a.buy, a.usdt, s.binanceKey, s.binanceSecret, s.binanceTestnet)
+            val verb = if (a.buy) "Куплено" else "Продано"
+            val base = "$verb ${"%.6f".format(Locale.US, r.executedQty)} $coin на ${Indicators.formatPrice(r.quoteQty)} USDT " +
+                "(средняя ${Indicators.formatPrice(r.avgPrice)})."
+            if (a.buy && (a.stopPct != null || a.takePct != null) && r.executedQty > 0) {
+                val st = a.stopPct ?: 0.05; val tk = a.takePct ?: 0.10
+                val (sl, tp) = com.archangel.ai.market.OrderMath.protection(r.avgPrice, st, tk)
+                // Комиссия могла быть списана монетой — продаём не больше реального свободного остатка
+                val free = runCatching { graph.binance.free(coin, s.binanceKey, s.binanceSecret, s.binanceTestnet) }.getOrDefault(r.executedQty)
+                val qty = minOf(r.executedQty, free)
+                val prot = runCatching { graph.binance.protect(a.symbol, qty, tp, sl, s.binanceKey, s.binanceSecret, s.binanceTestnet) }
+                base + if (prot.isSuccess) " Защита: цель ${Indicators.formatPrice(tp)}, стоп ${Indicators.formatPrice(sl)}."
+                else " Защиту поставить не удалось: ${prot.exceptionOrNull()?.message ?: "ошибка"}. Скажите «защити $coin», чтобы попробовать ещё раз."
+            } else base
         }
     }
 

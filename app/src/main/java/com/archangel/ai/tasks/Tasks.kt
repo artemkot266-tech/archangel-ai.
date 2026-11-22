@@ -154,5 +154,6 @@ class BootReceiver : BroadcastReceiver() {
             com.archangel.ai.features.BriefingScheduler.schedule(context, prefs.getInt("briefing_hour", 8), prefs.getInt("briefing_minute", 0))
         }
         if (com.archangel.ai.market.AlertStore(context).all().isNotEmpty()) com.archangel.ai.market.AlertScheduler.ensure(context)
+        com.archangel.ai.market.DcaScheduler.rescheduleAll(context)
     }
 }

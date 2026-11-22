@@ -20,10 +20,30 @@ sealed class PhoneAction {
     data class Navigate(val destination: String) : PhoneAction()
     /** Открыть график монеты в разделе «Рынок». */
     data class Market(val symbol: String) : PhoneAction()
-    /** Рыночный ордер на сумму в USDT. Всегда с подтверждением. */
-    data class Order(val buy: Boolean, val symbol: String, val usdt: Double) : PhoneAction() {
+    /**
+     * Ордер на сумму в USDT. Всегда с подтверждением.
+     * limitPrice — лимитный ордер по цене; stopPct/takePct — защита после покупки (доли: 0.05 = 5%).
+     */
+    data class Order(
+        val buy: Boolean,
+        val symbol: String,
+        val usdt: Double,
+        val limitPrice: Double? = null,
+        val stopPct: Double? = null,
+        val takePct: Double? = null,
+    ) : PhoneAction() {
         override val needsConfirmation = true
     }
+    /** Поставить стоп-лосс и тейк-профит на уже купленную монету (OCO). */
+    data class Protect(val symbol: String, val stopPct: Double, val takePct: Double) : PhoneAction() {
+        override val needsConfirmation = true
+    }
+    /** Отменить открытые ордера по паре (null — показать список). */
+    data class CancelOrders(val symbol: String?) : PhoneAction() {
+        override val needsConfirmation = true
+    }
+    /** План регулярной покупки (DCA). weekday — Calendar.DAY_OF_WEEK, null — каждый день. */
+    data class DcaAdd(val symbol: String, val usdt: Double, val weekday: Int?) : PhoneAction()
     /** Переход по разделам самого приложения. */
     data class Screen(val screen: AppScreen) : PhoneAction()
 

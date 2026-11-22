@@ -67,7 +67,7 @@ import java.util.Locale
 fun MarketScreen(
     vm: MarketViewModel,
     settings: AppSettings,
-    onOrder: (PhoneAction.Order) -> Unit,
+    onOrder: (PhoneAction) -> Unit,
     onAlertAdded: () -> Unit = {},
     onSpeak: (String) -> Unit = {},
     onSignalsOn: () -> Unit = {},
@@ -90,6 +90,12 @@ fun MarketScreen(
 
     var visible by rememberSaveable { mutableIntStateOf(64) }
     var amount by rememberSaveable { mutableStateOf("20") }
+    var limitMode by rememberSaveable { mutableStateOf(false) }
+    var limitPrice by rememberSaveable { mutableStateOf("") }
+    var protect by rememberSaveable { mutableStateOf(false) }
+    var stopPct by rememberSaveable { mutableIntStateOf(5) }
+    var takePct by rememberSaveable { mutableIntStateOf(10) }
+    LaunchedEffect(Unit) { vm.reloadDca() }
 
     Column(
         modifier
@@ -391,42 +397,106 @@ fun MarketScreen(
         Spacer(Modifier.height(28.dp))
         SectionHeader("03.2", "Сделка")
         Spacer(Modifier.height(14.dp))
-        MonoLabel("Сумма, USDT · рыночный ордер")
-        Spacer(Modifier.height(8.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 64.dp)
-                .background(Surface1, RoundedCornerShape(18.dp))
-                .border(1.dp, Hairline, RoundedCornerShape(18.dp))
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            BasicTextField(
-                value = amount,
-                onValueChange = { v -> amount = v.filter { it.isDigit() || it == '.' || it == ',' }.take(10) },
-                textStyle = TextStyles.Digits.copy(fontSize = 30.sp),
-                cursorBrush = SolidColor(Ember),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth(),
-            )
+        // Тип ордера
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("По рынку", onClick = { limitMode = false }, selected = !limitMode)
+            Chip("Лимит", onClick = {
+                limitMode = true
+                if (limitPrice.isBlank()) vm.ticker?.let { limitPrice = Indicators.formatPrice(it.last).replace("\u2009", "") }
+            }, selected = limitMode)
         }
+        Spacer(Modifier.height(12.dp))
+        MonoLabel("Сумма, USDT")
+        Spacer(Modifier.height(8.dp))
+        NumberField(amount, { amount = it })
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("10", "25", "50", "100").forEach { v -> Chip(v, onClick = { amount = v }, selected = amount == v) }
         }
-        Spacer(Modifier.height(14.dp))
+        if (limitMode) {
+            Spacer(Modifier.height(12.dp))
+            MonoLabel("Цена, USDT · ордер исполнится, когда рынок до неё дойдёт")
+            Spacer(Modifier.height(8.dp))
+            NumberField(limitPrice, { limitPrice = it })
+        }
         val usdt = amount.replace(',', '.').toDoubleOrNull() ?: 0.0
+        val limit = if (limitMode) limitPrice.replace(',', '.').replace(" ", "").toDoubleOrNull() else null
+        val entry = limit ?: vm.ticker?.last ?: 0.0
+
+        // Защита
+        Spacer(Modifier.height(10.dp))
+        com.archangel.ai.ui.components.ToggleRow(
+            "Стоп-лосс и тейк-профит",
+            protect,
+            sub = if (limitMode) "Для лимитного ордера защиту ставят после исполнения — кнопкой «Защитить» в портфеле."
+            else "Сразу после покупки ставлю OCO-ордер: продажа на цели или при падении до стопа.",
+        ) { protect = it }
+        if (protect && !limitMode) {
+            MonoLabel("Стоп, %", color = Smoke)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(3, 5, 8, 10).forEach { v -> Chip("−$v", onClick = { stopPct = v }, selected = stopPct == v) }
+            }
+            Spacer(Modifier.height(10.dp))
+            MonoLabel("Цель, %", color = Smoke)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(5, 10, 15, 20).forEach { v -> Chip("+$v", onClick = { takePct = v }, selected = takePct == v) }
+            }
+            if (entry > 0) {
+                val (sl, tp) = com.archangel.ai.market.OrderMath.protection(entry, stopPct / 100.0, takePct / 100.0)
+                Spacer(Modifier.height(8.dp))
+                MonoLabel("стоп ${Indicators.formatPrice(sl)} · цель ${Indicators.formatPrice(tp)} · прибыль/риск ${"%.1f".format(Locale.US, takePct.toDouble() / stopPct)}", color = Bone)
+            }
+        }
+
+        // Калькулятор риска
+        if (usdt > 0) {
+            val st = (if (protect && !limitMode) stopPct else 5) / 100.0
+            val risk = com.archangel.ai.market.OrderMath.riskUsd(usdt, st)
+            val deposit = vm.portfolio?.total ?: 0.0
+            Spacer(Modifier.height(12.dp))
+            Panel(Modifier.fillMaxWidth()) {
+                Column {
+                    MonoLabel("Риск сделки", color = Smoke)
+                    Spacer(Modifier.height(4.dp))
+                    val share = if (deposit > 0) risk / deposit * 100 else null
+                    Text(
+                        "Если сработает стоп −${(st * 100).toInt()}%, потеряете ≈${Indicators.formatPrice(risk)} USDT" +
+                            (share?.let { " — это ${"%.1f".format(Locale.US, it)}% депозита." } ?: "."),
+                        style = TextStyles.BodySmall.copy(fontSize = 14.sp),
+                        color = if ((share ?: 0.0) > 2.0) Ember else Bone,
+                    )
+                    if (share != null && share > 2.0) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Больше 2% депозита на одну сделку — рискованно.", style = TextStyles.BodySmall, color = Ember)
+                    }
+                    if (deposit > 0) {
+                        val rec = com.archangel.ai.market.OrderMath.positionSize(deposit, 0.01, st)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Сумма при риске 1% депозита: ${Indicators.formatPrice(rec)} USDT — подставить",
+                            style = TextStyles.BodySmall.copy(fontSize = 13.sp),
+                            color = Smoke,
+                            modifier = Modifier.clickable { amount = String.format(Locale.US, "%.2f", rec) },
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+        val stopArg = if (protect && !limitMode) stopPct / 100.0 else null
+        val takeArg = if (protect && !limitMode) takePct / 100.0 else null
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Pill(
-                "Купить", filledBone = true, enabled = usdt > 0,
-                onClick = { onOrder(PhoneAction.Order(true, vm.symbol, usdt)) },
+                "Купить", filledBone = true, enabled = usdt > 0 && (!limitMode || (limit ?: 0.0) > 0),
+                onClick = { onOrder(PhoneAction.Order(true, vm.symbol, usdt, limit, stopArg, takeArg)) },
                 modifier = Modifier.weight(1f),
             )
             Pill(
-                "Продать", accent = true, enabled = usdt > 0,
-                onClick = { onOrder(PhoneAction.Order(false, vm.symbol, usdt)) },
+                "Продать", accent = true, enabled = usdt > 0 && (!limitMode || (limit ?: 0.0) > 0),
+                onClick = { onOrder(PhoneAction.Order(false, vm.symbol, usdt, limit)) },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -437,6 +507,61 @@ fun MarketScreen(
                 else "Включён РЕАЛЬНЫЙ счёт.",
             style = TextStyles.BodySmall.copy(color = if (settings.binanceTestnet) Smoke else Ember),
         )
+
+        // ── Открытые ордера
+        if (settings.exchangeReady) {
+            Spacer(Modifier.height(28.dp))
+            SectionHeader("03.4", "Открытые ордера", trailing = vm.openOrders.size.takeIf { it > 0 }?.toString())
+            Spacer(Modifier.height(8.dp))
+            if (vm.openOrders.isEmpty()) Text("Открытых ордеров нет.", style = TextStyles.BodySmall)
+            vm.openOrders.take(20).forEach { o ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "${if (o.buy) "Покупка" else "Продажа"} ${o.symbol.removeSuffix("USDT")} · ${o.kind}",
+                            style = TextStyles.Body.copy(fontSize = 15.sp),
+                            color = if (o.buy) Bone else Ember,
+                        )
+                        val at = if (o.stopPrice > 0) "стоп ${Indicators.formatPrice(o.stopPrice)}" else "по ${Indicators.formatPrice(o.price)}"
+                        MonoLabel("${String.format(Locale.US, "%.6f", o.origQty).trimEnd('0').trimEnd('.')} · $at" +
+                            if (o.orderListId >= 0) " · OCO" else "", color = Smoke)
+                    }
+                    Chip("Отменить", onClick = { vm.cancel(o) })
+                }
+            }
+            if (vm.ordersMessage.isNotBlank()) Text(vm.ordersMessage, style = TextStyles.BodySmall)
+        }
+
+        // ── Покупки по плану (DCA)
+        Spacer(Modifier.height(28.dp))
+        SectionHeader("03.5", "Покупки по плану")
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Регулярная покупка на одинаковую сумму. В назначенный день пришлю уведомление — покупка только после подтверждения. " +
+                "Голосом: «покупай эфир на 10 долларов каждый понедельник».",
+            style = TextStyles.BodySmall,
+        )
+        vm.dcaPlans.forEach { pl ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${pl.coin} · ${Indicators.formatPrice(pl.usdt)} USDT · ${pl.schedule}", style = TextStyles.Body.copy(fontSize = 15.sp), modifier = Modifier.weight(1f))
+                Chip("Удалить", onClick = { vm.removeDca(pl.id) })
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        MonoLabel("Новый план: ${vm.symbol.removeSuffix("USDT")} на ${amount.ifBlank { "0" }} USDT", color = Smoke)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val days = listOf<Pair<String, Int?>>(
+                "Каждый день" to null, "Пн" to java.util.Calendar.MONDAY, "Вт" to java.util.Calendar.TUESDAY,
+                "Ср" to java.util.Calendar.WEDNESDAY, "Чт" to java.util.Calendar.THURSDAY, "Пт" to java.util.Calendar.FRIDAY,
+                "Сб" to java.util.Calendar.SATURDAY, "Вс" to java.util.Calendar.SUNDAY,
+            )
+            days.forEach { (label, d) ->
+                Chip(label, onClick = { if (usdt > 0) { vm.addDca(usdt, d); onAlertAdded() } })
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        MonoLabel("Нажмите день — план добавится (время — 10:00).", color = Smoke)
 
         // ── Баланс
         Spacer(Modifier.height(28.dp))
@@ -458,6 +583,10 @@ fun MarketScreen(
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(Indicators.formatPrice(h.value), style = TextStyles.Mono)
+                    if (h.asset !in setOf("USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI")) {
+                        Spacer(Modifier.width(8.dp))
+                        Chip("Защитить", onClick = { onOrder(PhoneAction.Protect(h.asset + "USDT", 0.05, 0.10)) })
+                    }
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -492,3 +621,26 @@ fun MarketScreen(
     }
 }
 
+
+@Composable
+private fun NumberField(value: String, onChange: (String) -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 60.dp)
+            .background(Surface1, RoundedCornerShape(18.dp))
+            .border(1.dp, Hairline, RoundedCornerShape(18.dp))
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = { v -> onChange(v.filter { it.isDigit() || it == '.' || it == ',' }.take(14)) },
+            textStyle = TextStyles.Digits.copy(fontSize = 28.sp),
+            cursorBrush = SolidColor(Ember),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}

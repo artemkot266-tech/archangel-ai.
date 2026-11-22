@@ -145,6 +145,116 @@ class BinanceClient {
         )
     }
 
+    // ───────────── Лимитные ордера, защита, открытые ордера ─────────────
+
+    private val rulesCache = HashMap<String, SymbolRules>()
+
+    suspend fun rules(symbol: String): SymbolRules {
+        rulesCache[symbol]?.let { return it }
+        val res = Http.request("$publicBase/api/v3/exchangeInfo?symbol=$symbol")
+        if (!res.ok) throw FriendlyException(explain(res))
+        val sym = JSONObject(res.body).getJSONArray("symbols").getJSONObject(0)
+        val filters = sym.getJSONArray("filters")
+        var tick = "0.01"; var step = "0.00001"; var minQty = 0.0; var minNotional = 5.0
+        for (i in 0 until filters.length()) {
+            val f = filters.getJSONObject(i)
+            when (f.getString("filterType")) {
+                "PRICE_FILTER" -> tick = f.getString("tickSize")
+                "LOT_SIZE" -> { step = f.getString("stepSize"); minQty = f.getString("minQty").toDouble() }
+                "NOTIONAL" -> minNotional = f.optString("minNotional", "5").toDoubleOrNull() ?: 5.0
+                "MIN_NOTIONAL" -> minNotional = f.optString("minNotional", "5").toDoubleOrNull() ?: 5.0
+            }
+        }
+        return SymbolRules(tick, step, minQty, minNotional).also { rulesCache[symbol] = it }
+    }
+
+    /** Лимитный ордер на сумму в USDT: количество считается и округляется по правилам пары. */
+    suspend fun limitOrder(
+        symbol: String, buy: Boolean, price: Double, usdt: Double, key: String, secret: String, testnet: Boolean,
+    ): OrderResult {
+        val r = rules(symbol)
+        val p = OrderMath.floorStep(price, r.tickSize)
+        val qty = OrderMath.floorStep(usdt / p.toDouble(), r.stepSize)
+        OrderMath.check(r, qty, p.toDouble()).takeIf { it.isNotEmpty() }?.let { throw FriendlyException(it) }
+        val res = signed(
+            "POST", "/api/v3/order",
+            mapOf(
+                "symbol" to symbol, "side" to if (buy) "BUY" else "SELL", "type" to "LIMIT",
+                "timeInForce" to "GTC", "price" to OrderMath.plain(p), "quantity" to OrderMath.plain(qty),
+                "newOrderRespType" to "RESULT",
+            ),
+            key, secret, testnet,
+        )
+        val o = JSONObject(res.body)
+        return OrderResult(
+            orderId = o.optLong("orderId"),
+            status = o.optString("status"),
+            executedQty = o.optString("origQty", "0").toDoubleOrNull() ?: 0.0,
+            quoteQty = (o.optString("origQty", "0").toDoubleOrNull() ?: 0.0) * p.toDouble(),
+        )
+    }
+
+    /**
+     * Защита позиции одним OCO-ордером на продажу: тейк-профит выше цены и стоп-лосс ниже.
+     * Сработал один — второй отменяется биржей.
+     */
+    suspend fun protect(
+        symbol: String, quantity: Double, takeProfit: Double, stopLoss: Double,
+        key: String, secret: String, testnet: Boolean,
+    ): Long {
+        val r = rules(symbol)
+        val qty = OrderMath.floorStep(quantity, r.stepSize)
+        val tp = OrderMath.floorStep(takeProfit, r.tickSize)
+        val sl = OrderMath.floorStep(stopLoss, r.tickSize)
+        // Лимит стопа чуть ниже триггера, чтобы при резком падении ордер исполнился
+        val slLimit = OrderMath.floorStep(stopLoss * 0.995, r.tickSize)
+        OrderMath.check(r, qty, sl.toDouble()).takeIf { it.isNotEmpty() }?.let { throw FriendlyException(it) }
+        val res = signed(
+            "POST", "/api/v3/orderList/oco",
+            mapOf(
+                "symbol" to symbol, "side" to "SELL", "quantity" to OrderMath.plain(qty),
+                "aboveType" to "LIMIT_MAKER", "abovePrice" to OrderMath.plain(tp),
+                "belowType" to "STOP_LOSS_LIMIT", "belowStopPrice" to OrderMath.plain(sl),
+                "belowPrice" to OrderMath.plain(slLimit), "belowTimeInForce" to "GTC",
+            ),
+            key, secret, testnet,
+        )
+        return JSONObject(res.body).optLong("orderListId")
+    }
+
+    suspend fun openOrders(key: String, secret: String, testnet: Boolean, symbol: String? = null): List<OpenOrder> {
+        val res = signed("GET", "/api/v3/openOrders", symbol?.let { mapOf("symbol" to it) } ?: emptyMap(), key, secret, testnet)
+        val arr = JSONArray(res.body)
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            OpenOrder(
+                orderId = o.getLong("orderId"),
+                orderListId = o.optLong("orderListId", -1),
+                symbol = o.getString("symbol"),
+                side = o.getString("side"),
+                type = o.getString("type"),
+                price = o.optString("price", "0").toDoubleOrNull() ?: 0.0,
+                stopPrice = o.optString("stopPrice", "0").toDoubleOrNull() ?: 0.0,
+                origQty = o.optString("origQty", "0").toDoubleOrNull() ?: 0.0,
+                executedQty = o.optString("executedQty", "0").toDoubleOrNull() ?: 0.0,
+                time = o.optLong("time"),
+            )
+        }.sortedByDescending { it.time }
+    }
+
+    /** Отмена ордера. Отмена одной части OCO снимает обе. */
+    suspend fun cancelOrder(symbol: String, orderId: Long, key: String, secret: String, testnet: Boolean) {
+        signed("DELETE", "/api/v3/order", mapOf("symbol" to symbol, "orderId" to orderId.toString()), key, secret, testnet)
+    }
+
+    suspend fun cancelAll(symbol: String, key: String, secret: String, testnet: Boolean) {
+        signed("DELETE", "/api/v3/openOrders", mapOf("symbol" to symbol), key, secret, testnet)
+    }
+
+    /** Свободный остаток монеты (например, после покупки — сколько реально можно продать). */
+    suspend fun free(asset: String, key: String, secret: String, testnet: Boolean): Double =
+        balances(key, secret, testnet).firstOrNull { it.asset == asset }?.free ?: 0.0
+
     private suspend fun serverOffset(testnet: Boolean): Long {
         timeOffset?.let { return it }
         val res = Http.request("${tradeBase(testnet)}/api/v3/time")
@@ -182,7 +292,8 @@ class BinanceClient {
         val human = when (code) {
             -2014, -2015 -> "Ключ биржи не подходит, нет прав на торговлю или IP не в белом списке."
             -1021 -> "Часы телефона расходятся с биржей. Повторите попытку."
-            -1013, -1111 -> "Сумма слишком мала или не соответствует правилам пары (обычно минимум ~5 USDT)."
+            -1013, -1111 -> "Ордер не прошёл правила пары: сумма слишком мала (обычно минимум ~5 USDT) или цена слишком далеко от рынка."
+            -2011 -> "Ордер не найден — возможно, он уже исполнен или отменён."
             -2010 -> "Биржа отклонила ордер: недостаточно средств или ограничение."
             -1121 -> "Такой торговой пары нет."
             else -> when (res.code) {

@@ -110,6 +110,7 @@
         <receiver android:name=".tasks.ReminderReceiver" android:exported="false" />
         <receiver android:name=".features.BriefingReceiver" android:exported="false" />
         <receiver android:name=".features.PhoneFinderReceiver" android:exported="false" />
+        <receiver android:name=".market.DcaReceiver" android:exported="false" />
         <receiver android:name=".widget.OrbWidget" android:exported="true" android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

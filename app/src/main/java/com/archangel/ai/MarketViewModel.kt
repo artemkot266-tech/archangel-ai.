@@ -93,6 +93,63 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── Открытые ордера
+    var openOrders by mutableStateOf<List<com.archangel.ai.market.OpenOrder>>(emptyList())
+        private set
+    var ordersMessage by mutableStateOf("")
+        private set
+
+    fun loadOpenOrders() {
+        val s = graph.settings.current
+        if (!s.exchangeReady) { openOrders = emptyList(); return }
+        viewModelScope.launch {
+            try {
+                openOrders = graph.binance.openOrders(s.binanceKey, s.binanceSecret, s.binanceTestnet)
+                ordersMessage = ""
+            } catch (e: FriendlyException) {
+                ordersMessage = e.message.orEmpty()
+            } catch (e: Exception) {
+                ordersMessage = "Не удалось загрузить ордера: ${e.javaClass.simpleName}"
+            }
+        }
+    }
+
+    /** Отмена одного ордера кнопкой (часть OCO снимает обе части). */
+    fun cancel(o: com.archangel.ai.market.OpenOrder) {
+        val s = graph.settings.current
+        viewModelScope.launch {
+            try {
+                graph.binance.cancelOrder(o.symbol, o.orderId, s.binanceKey, s.binanceSecret, s.binanceTestnet)
+                ordersMessage = "Ордер отменён."
+            } catch (e: FriendlyException) {
+                ordersMessage = e.message.orEmpty()
+            } catch (e: Exception) {
+                ordersMessage = "Не удалось отменить: ${e.javaClass.simpleName}"
+            }
+            loadOpenOrders(); loadBalances()
+        }
+    }
+
+    // ── Покупки по плану (DCA)
+    private val dcaStore = com.archangel.ai.market.DcaStore(app)
+    var dcaPlans by mutableStateOf(dcaStore.all())
+        private set
+
+    fun reloadDca() { dcaPlans = dcaStore.all() }
+
+    fun addDca(usdt: Double, weekday: Int?) {
+        val plan = com.archangel.ai.market.DcaPlan(System.currentTimeMillis(), symbol, usdt, weekday)
+        dcaStore.add(plan)
+        com.archangel.ai.market.DcaScheduler.schedule(graph, plan)
+        reloadDca()
+    }
+
+    fun removeDca(id: Long) {
+        dcaStore.remove(id)
+        com.archangel.ai.market.DcaScheduler.cancel(graph, id)
+        reloadDca()
+    }
+
     private val alertStore = AlertStore(app)
     var alerts by mutableStateOf(alertStore.all())
         private set
@@ -254,6 +311,7 @@ class MarketViewModel(app: Application) : AndroidViewModel(app) {
                 balances = graph.binance.balances(s.binanceKey, s.binanceSecret, s.binanceTestnet)
                 balanceMessage = if (balances.isEmpty()) "Баланс пуст." else ""
                 portfolio = runCatching { graph.binance.portfolio(s.binanceKey, s.binanceSecret, s.binanceTestnet) }.getOrNull()
+                loadOpenOrders()
             } catch (e: FriendlyException) {
                 balanceMessage = e.message.orEmpty()
             } catch (e: Exception) {

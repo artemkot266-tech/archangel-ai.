@@ -277,12 +277,51 @@ object CommandParser {
             return PhoneAction.Navigate(it.groupValues[3].trim())
         }
 
-        // Сделки: «купи биткоин на 20 долларов», «продай эфир на 15»
-        Regex("^(купи|продай)\\s+(\\S+)\\s+на\\s+([0-9]+(?:[.,][0-9]+)?)").find(s)?.let {
+        // Регулярные покупки (DCA): «покупай эфир на 10 долларов каждый понедельник»
+        Regex("^(покупай|докупай|закупай)\\s+(\\S+)\\s+на\\s+([0-9]+(?:[.,][0-9]+)?)\\D*?(каждый|каждую|каждое|по)\\s+(\\S+)").find(s)?.let { m ->
+            val symbol = coinToSymbol(m.groupValues[2])
+            val amount = m.groupValues[3].replace(',', '.').toDoubleOrNull()
+            if (symbol != null && amount != null && amount > 0) {
+                return PhoneAction.DcaAdd(symbol, amount, weekdayOf(m.groupValues[5]))
+            }
+        }
+
+        // Отмена ордеров: «отмени все ордера по биткоину», «отмени ордера»
+        Regex("^(отмени|отменить|сними|убери)\\s+(все\\s+)?(мои\\s+)?(открытые\\s+)?ордер\\S*\\s*(по|на)?\\s*(\\S+)?").find(s)?.let { m ->
+            return PhoneAction.CancelOrders(m.groupValues[6].takeIf { it.isNotBlank() }?.let { coinToSymbol(it) })
+        }
+
+        // Защита купленной монеты: «поставь стоп-лосс на биткоин 5 процентов и тейк 10», «защити эфир»
+        Regex("^(защити|поставь (стоп|стоп-лосс|стоплосс|защиту)\\S*\\s+(на|для))\\s+(\\S+)(.*)$").find(s)?.let { m ->
+            val symbol = coinToSymbol(m.groupValues[4])
+            if (symbol != null) {
+                val rest = m.groupValues[5]
+                val (stop, take) = protectionOf(rest)
+                // «поставь стоп на биткоин 5 процентов» — первое число и есть стоп
+                val first = Regex("^\\s*(на\\s+)?([0-9]+(?:[.,][0-9]+)?)").find(rest)?.groupValues?.get(2)
+                    ?.replace(',', '.')?.toDoubleOrNull()?.div(100)?.takeIf { it in 0.001..0.9 }
+                return PhoneAction.Protect(symbol, stop ?: first ?: 0.05, take ?: 0.10)
+            }
+        }
+
+        // Сделки: «купи биткоин на 20 долларов», «продай эфир на 15»,
+        // лимит: «купи биткоин на 50, если упадёт до 90 тысяч», «… по цене 3000»,
+        // защита: «… со стопом 5 процентов и тейком 10», «… с защитой»
+        Regex("^(купи|продай)\\s+(\\S+)\\s+на\\s+([0-9]+(?:[.,][0-9]+)?)(.*)$").find(s)?.let {
             val symbol = coinToSymbol(it.groupValues[2])
             val amount = it.groupValues[3].replace(',', '.').toDoubleOrNull()
             if (symbol != null && amount != null && amount > 0) {
-                return PhoneAction.Order(buy = it.groupValues[1] == "купи", symbol = symbol, usdt = amount)
+                val rest = it.groupValues[4]
+                val buy = it.groupValues[1] == "купи"
+                val limit = Regex("(по цене|если|когда)\\s+(\\S+\\s+)?(упадет|опустится|снизится|вырастет|поднимется|дойдет|будет|подешевеет|подорожает)?\\s*(до|выше|ниже)?\\s*([0-9][0-9 ]*(?:[.,][0-9]+)?\\s*(тысяч\\S*|тыс|к)?)")
+                    .find(rest)?.let { lm -> priceOf(lm.groupValues[5]) }
+                val (stop, take) = if (buy) protectionOf(rest) else (null to null)
+                val shield = buy && Regex("с защитой|со стопом|стоп-?лосс").containsMatchIn(rest)
+                return PhoneAction.Order(
+                    buy = buy, symbol = symbol, usdt = amount, limitPrice = limit,
+                    stopPct = stop ?: if (shield) 0.05 else null,
+                    takePct = take ?: if (shield) 0.10 else null,
+                )
             }
         }
 
@@ -323,6 +362,37 @@ object CommandParser {
 
     fun isCancel(s: String) =
         Regex("^(отмена|отмени|не надо|ничего|стоп|забудь|неважно, отмена|не нужно)").containsMatchIn(s.lowercase().trim())
+
+    /** «90 тысяч», «90к», «3 400,5» → число. */
+    fun priceOf(text: String): Double? {
+        val m = Regex("([0-9][0-9 ]*(?:[.,][0-9]+)?)\\s*(тысяч\\S*|тыс|к)?").find(text.trim()) ?: return null
+        val base = m.groupValues[1].replace(" ", "").replace(',', '.').toDoubleOrNull() ?: return null
+        return if (m.groupValues[2].isNotEmpty()) base * 1000 else base
+    }
+
+    /** «стоп 5 процентов и тейк 10» → (0.05, 0.10). Не названо — null. */
+    fun protectionOf(text: String): Pair<Double?, Double?> {
+        val stop = Regex("стоп\\S*\\s+(на\\s+|в\\s+)?([0-9]+(?:[.,][0-9]+)?)").find(text)
+            ?.groupValues?.get(2)?.replace(',', '.')?.toDoubleOrNull()?.div(100)
+        val take = Regex("(тейк|цел|прибыл)\\S*\\s+(на\\s+|в\\s+)?([0-9]+(?:[.,][0-9]+)?)").find(text)
+            ?.groupValues?.get(3)?.replace(',', '.')?.toDoubleOrNull()?.div(100)
+        return stop?.takeIf { it in 0.001..0.9 } to take?.takeIf { it in 0.001..5.0 }
+    }
+
+    /** «понедельник» → Calendar.MONDAY; «день» → null (каждый день); «неделю» → понедельник. */
+    fun weekdayOf(word: String): Int? {
+        val w = word.lowercase()
+        return when {
+            w.startsWith("понедельн") || w.startsWith("недел") -> Calendar.MONDAY
+            w.startsWith("вторн") -> Calendar.TUESDAY
+            w.startsWith("сред") -> Calendar.WEDNESDAY
+            w.startsWith("четверг") -> Calendar.THURSDAY
+            w.startsWith("пятниц") -> Calendar.FRIDAY
+            w.startsWith("суббот") -> Calendar.SATURDAY
+            w.startsWith("воскресен") -> Calendar.SUNDAY
+            else -> null
+        }
+    }
 
     // ───────────── Время для напоминаний ─────────────
 
@@ -434,6 +504,9 @@ object CommandParser {
                 buy = o.optString("side").uppercase() != "SELL",
                 symbol = o.getString("symbol").uppercase(),
                 usdt = o.getDouble("usdt"),
+                limitPrice = o.optDouble("price").takeIf { !it.isNaN() && it > 0 },
+                stopPct = o.optDouble("stop").takeIf { !it.isNaN() && it > 0 }?.div(100),
+                takePct = o.optDouble("take").takeIf { !it.isNaN() && it > 0 }?.div(100),
             ).takeIf { it.usdt > 0 }
             "youtube" -> PhoneAction.YouTube(str("query"))
             "music" -> PhoneAction.Music(str("app")?.let { MusicApp.fromText(it) }, if (o.has("query")) o.optString("query") else null)
@@ -451,6 +524,9 @@ object CommandParser {
             "remember" -> PhoneAction.Remember(str("fact"))
             "find_phone" -> PhoneAction.FindPhone(o.optBoolean("on", true))
             "market_summary" -> PhoneAction.MarketSummary
+            "protect" -> PhoneAction.Protect(o.getString("symbol").uppercase(), o.optDouble("stop", 5.0) / 100, o.optDouble("take", 10.0) / 100)
+            "cancel_orders" -> PhoneAction.CancelOrders(str("symbol")?.uppercase())
+            "dca" -> PhoneAction.DcaAdd(o.getString("symbol").uppercase(), o.getDouble("usdt"), str("weekday")?.let { weekdayOf(it) })
             "lesson" -> PhoneAction.Lesson(str("id")?.takeIf { com.archangel.ai.learn.Academy.byId(it) != null })
             else -> null
         }
@@ -484,7 +560,10 @@ object CommandParser {
 {"type":"lesson","id":"risk"}  (открыть урок; id из: basics, stablecoins, security, api_keys, deposit_choose, deposit_binance, deposit_bybit, deposit_okx, deposit_whitebit, transfer, p2p_safety, candles, levels, rsi, macd, sma, volume, mtf, fng, signals, orders, stoploss, risk, dca, fees, emotions, practice, voice)
 {"type":"remember","fact":"факт о пользователе — ТОЛЬКО если он сам попросил запомнить"}
 {"type":"market","symbol":"BTCUSDT"}
-{"type":"order","side":"BUY|SELL","symbol":"BTCUSDT","usdt":20}
+{"type":"order","side":"BUY|SELL","symbol":"BTCUSDT","usdt":20,"price":90000,"stop":5,"take":10}  (price — лимитная цена, stop/take — проценты защиты; необязательны)
+{"type":"protect","symbol":"BTCUSDT","stop":5,"take":10}  (стоп-лосс и тейк-профит на купленную монету)
+{"type":"cancel_orders","symbol":"BTCUSDT"}
+{"type":"dca","symbol":"ETHUSDT","usdt":10,"weekday":"понедельник|день"}
 Если для действия не хватает данных (что искать, что включить, куда ехать, когда напомнить) — НЕ добавляй тег,
 а коротко задай один уточняющий вопрос. Поля, которых пользователь не назвал, просто не указывай.
 Звонки, SMS и сделки пользователь подтверждает сам — не утверждай, что действие уже выполнено.
