@@ -165,4 +165,23 @@ class CommandParserTest {
     @Test fun wakeAbsent() { assertNull(CommandParser.findWakeName("какая сегодня погода", names)) }
     @Test fun wakeNoFalseShort() { assertNull(CommandParser.findWakeName("макароны на ужин", listOf("Макс"))) }
     @Test fun wakeShortExact() { assertEquals(4, CommandParser.findWakeName("макс время", listOf("Макс"))) }
+    // ── Учёт расходов
+    @Test fun expenseSimple() = assertEquals(PhoneAction.Expense(200.0, "", "кофе"), p("Потратил 200 на кофе"))
+    @Test fun expenseWakeAndCurrency() =
+        assertEquals(PhoneAction.Expense(1500.0, "₽", "продукты"), p("Архангел, потратила 1 500 рублей на продукты"))
+    @Test fun expenseAmountAfter() = assertEquals(PhoneAction.Expense(350.0, "грн", "такси"), p("потратил на такси 350 гривен"))
+    @Test fun expenseThousands() = assertEquals(PhoneAction.Expense(2500.0, "", "бензин"), p("я потратил 2,5 тысячи на бензин"))
+    @Test fun expensePaid() = assertEquals(PhoneAction.Expense(800.0, "", "интернет"), p("заплатил 800 за интернет"))
+    @Test fun expenseWord() = assertEquals(PhoneAction.Expense(120.0, "", "обед"), p("запиши расход 120 обед"))
+    @Test fun expenseKofeNotThousand() = assertEquals(PhoneAction.Expense(200.0, "", "кофе"), p("расход 200 кофе"))
+    @Test fun expenseNoCategory() = assertEquals(PhoneAction.Expense(90.0, "$", "прочее"), p("потратил 90 долларов"))
+    @Test fun spentTimeIsNotExpense() = assertNull(p("потратил весь день на уборку"))
+    @Test fun expenseSummaryWeek() = assertEquals(PhoneAction.ExpenseSummary("WEEK"), p("Сколько я потратил за неделю?"))
+    @Test fun expenseSummaryDefault() = assertEquals(PhoneAction.ExpenseSummary("MONTH"), p("покажи мои расходы"))
+    @Test fun expenseSummaryToday() = assertEquals(PhoneAction.ExpenseSummary("TODAY"), p("сколько потрачено сегодня"))
+    @Test fun expenseSummaryCategory() =
+        assertEquals(PhoneAction.ExpenseSummary("WEEK", "кофе"), p("сколько я потратил на кофе за неделю"))
+    @Test fun expenseSummaryThisWeek() = assertEquals(PhoneAction.ExpenseSummary("WEEK"), p("расходы на этой неделе"))
+    @Test fun expenseUndo() = assertEquals(PhoneAction.ExpenseUndo, p("удали последний расход"))
+    @Test fun noteStillWorks() = assertEquals(PhoneAction.Note("купить молоко"), p("запиши купить молоко"))
 }

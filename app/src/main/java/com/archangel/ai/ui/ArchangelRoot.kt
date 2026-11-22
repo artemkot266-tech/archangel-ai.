@@ -325,11 +325,13 @@ fun ArchangelRoot(
                     AppScreen.TASKS -> TasksScreen(
                         notes = vm.notes,
                         reminders = vm.reminders,
-                        onRefresh = { vm.refreshTasks() },
+                        onRefresh = { vm.refreshTasks(); vm.refreshExpenses() },
                         onAddNote = { vm.addNote(it) },
                         onDeleteNote = { vm.deleteNote(it) },
                         onDeleteReminder = { vm.deleteReminder(it) },
                         onSay = { vm.send(it) },
+                        expenses = vm.expenses,
+                        onDeleteExpense = { vm.deleteExpense(it) },
                     )
                     AppScreen.MARKET -> MarketScreen(
                         vm = market,

@@ -1,5 +1,6 @@
 package com.archangel.ai.phone
 
+import com.archangel.ai.features.Expenses
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -122,6 +123,24 @@ object CommandParser {
             .find(s)?.let { return PhoneAction.FindPhone(true) }
         Regex("(?iu)^(нашел|нашла|нашли|я тебя нашел|я тебя нашла|хватит звонить|выключи сигнал|стоп сигнал)$")
             .find(s)?.let { return PhoneAction.FindPhone(false) }
+
+        // Учёт расходов: «потратил 200 на кофе», «сколько я потратил за неделю», «удали последний расход»
+        Regex("(?iu)^(удали|отмени|убери|сотри)\\s+(последн[\\p{L}]*\\s+)?(расход|трату|покупку)$").find(s)
+            ?.let { return PhoneAction.ExpenseUndo }
+        Regex("(?iu)^(сколько|на что)\\s+(я\\s+)?(потратил[\\p{L}]*|потрачено|ушло денег)(.*)$").find(s)?.let {
+            val rest = it.groupValues[4]
+            return PhoneAction.ExpenseSummary(Expenses.periodOf(rest).name, Expenses.categoryFilterOf(rest))
+        }
+        Regex("(?iu)^(покажи\\s+|открой\\s+|какие\\s+)?(у меня\\s+)?(мои\\s+)?(расходы|траты)(\\s+.*)?$").find(s)?.let {
+            val rest = it.groupValues[5]
+            return PhoneAction.ExpenseSummary(Expenses.periodOf(rest).name, Expenses.categoryFilterOf(rest))
+        }
+        Regex("(?iu)^(я\\s+)?(потратил|потратила|потратили|потрачено|заплатил|заплатила)\\s+(.+)$").find(s)?.let {
+            Expenses.parseSpend(it.groupValues[3])?.let { (sum, cur, cat) -> return PhoneAction.Expense(sum, cur, cat) }
+        }
+        Regex("(?iu)^((запиши|добавь|новый|новая)\\s+)?(расход|трату|трата)\\s*[:,]?\\s+(.+)$").find(s)?.let {
+            Expenses.parseSpend(it.groupValues[4])?.let { (sum, cur, cat) -> return PhoneAction.Expense(sum, cur, cat) }
+        }
 
         // «Защитник»: проверка ссылок и подозрительных сообщений
         val hasUrl = Regex("(https?://|www\\.)\\S+").containsMatchIn(s)

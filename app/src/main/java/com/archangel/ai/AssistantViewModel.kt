@@ -27,6 +27,9 @@ import com.archangel.ai.phone.TaxiApp
 import com.archangel.ai.tasks.TaskStore
 import com.archangel.ai.data.MemoryStore
 import com.archangel.ai.features.CalendarHelper
+import com.archangel.ai.features.ExpensePeriod
+import com.archangel.ai.features.ExpenseStore
+import com.archangel.ai.features.Expenses
 import com.archangel.ai.features.Guardian
 import com.archangel.ai.features.HomeAssistant
 import com.archangel.ai.features.ImageUtil
@@ -488,6 +491,16 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteNote(id: Long) { tasks.deleteNote(id); refreshTasks() }
+
+    // ───────────── Расходы ─────────────
+
+    private val expenseStore = ExpenseStore(app)
+    var expenses by mutableStateOf(expenseStore.all())
+        private set
+
+    fun refreshExpenses() { expenses = expenseStore.all() }
+
+    fun deleteExpense(id: Long) { expenseStore.delete(id); refreshExpenses() }
 
     // ───────────── Память ─────────────
 
@@ -1052,6 +1065,27 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                         if (opinion == null) local else "$local\n\nМнение ИИ: $opinion"
                     }
                 }
+            }
+            is PhoneAction.Expense -> {
+                expenseStore.add(action.amount, action.currency, action.category)
+                refreshExpenses()
+                val today = Expenses.summaryToday(expenses)
+                reply("Записал расход: ${Expenses.money(action.amount, action.currency)} — ${action.category}. $today", viaVoice)
+            }
+            is PhoneAction.ExpenseSummary -> {
+                refreshExpenses()
+                navigateTo = AppScreen.TASKS
+                val period = runCatching { ExpensePeriod.valueOf(action.period) }.getOrDefault(ExpensePeriod.MONTH)
+                reply(Expenses.summary(expenses, period, action.category), viaVoice)
+            }
+            PhoneAction.ExpenseUndo -> {
+                val last = expenseStore.undoLast()
+                refreshExpenses()
+                reply(
+                    if (last == null) "Расходов пока нет."
+                    else "Удалил расход: ${Expenses.money(last.amount, last.currency)} — ${last.category}.",
+                    viaVoice,
+                )
             }
             is PhoneAction.FindPhone -> {
                 val ctx = getApplication<Application>()
