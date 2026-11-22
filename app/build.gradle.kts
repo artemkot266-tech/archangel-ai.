@@ -13,8 +13,8 @@ android {
         applicationId = "com.archangel.ai"
         minSdk = 26
         targetSdk = 36
-        versionCode = 32
-        versionName = "0.21.0"
+        versionCode = 33
+        versionName = "0.22.0"
         // Офлайн-слух (Vosk) — нативная библиотека; только архитектуры телефонов, чтобы APK был меньше
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
