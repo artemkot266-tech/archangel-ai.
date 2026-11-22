@@ -29,10 +29,10 @@ jobs:
           if [ -n "$UPLOAD_KEYSTORE_B64" ]; then
             echo "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
             export UPLOAD_KEYSTORE_PATH="$RUNNER_TEMP/upload.jks"
-            TASKS="testFullDebugUnitTest assembleFullRelease bundlePlayRelease"
-          else
-            TASKS="testFullDebugUnitTest assembleFullRelease"
+            echo "HAS_UPLOAD_KEY=true" >> $GITHUB_ENV
           fi
+          # Версия для Play собирается всегда (проверка), но публикуется только с настоящим ключом
+          TASKS="testFullDebugUnitTest assembleFullRelease bundlePlayRelease"
           ./gradlew $TASKS --no-daemon --stacktrace 2>&1 | tee build.log
         env:
           UPLOAD_KEYSTORE_B64: ${{ secrets.UPLOAD_KEYSTORE_B64 }}
@@ -67,7 +67,7 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           cp app/build/outputs/apk/full/release/app-full-release.apk "$NAME"
           # Пакет для Google Play (.aab), если собран
-          if [ -f app/build/outputs/bundle/playRelease/app-play-release.aab ]; then
+          if [ "$HAS_UPLOAD_KEY" = "true" ] && [ -f app/build/outputs/bundle/playRelease/app-play-release.aab ]; then
             cp app/build/outputs/bundle/playRelease/app-play-release.aab "ARCHANGEL_AI-$VERSION-google-play.aab"
           fi
 
