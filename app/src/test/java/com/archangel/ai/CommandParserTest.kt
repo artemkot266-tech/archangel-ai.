@@ -155,4 +155,14 @@ class CommandParserTest {
     @Test fun findOtherStillSearch() = assertEquals(PhoneAction.Search("рецепт борща"), p("найди рецепт борща"))
     @Test fun callStillCall() = assertEquals(PhoneAction.Call("маме"), p("позвони маме"))
     @Test fun findPhoneTag() = assertEquals(PhoneAction.FindPhone(true), CommandParser.parseActionTag("""{"type":"find_phone"}"""))
+    // ── Узнавание имени в режиме ожидания ──
+    private val names = listOf("Джарвис", "архангел")
+
+    @Test fun wakeExact() { assertEquals(8, CommandParser.findWakeName("Архангел, который час", names)) }
+    @Test fun wakeCaseEnding() { assertEquals(9, CommandParser.findWakeName("архангела позови", names)) }
+    @Test fun wakeMisheard() { assertEquals(7, CommandParser.findWakeName("джервис включи музыку", names)) }
+    @Test fun wakeInMiddle() { assertEquals(13, CommandParser.findWakeName("слушай джарвис открой ютуб", names)?.minus(1)) }
+    @Test fun wakeAbsent() { assertNull(CommandParser.findWakeName("какая сегодня погода", names)) }
+    @Test fun wakeNoFalseShort() { assertNull(CommandParser.findWakeName("макароны на ужин", listOf("Макс"))) }
+    @Test fun wakeShortExact() { assertEquals(4, CommandParser.findWakeName("макс время", listOf("Макс"))) }
 }

@@ -53,6 +53,46 @@ object CommandParser {
         return t
     }
 
+    /**
+     * Ищет имя помощника во фразе — с допуском ошибок распознавания
+     * («архангела», «джервис» вместо «джарвис»). Возвращает позицию сразу после имени или null.
+     */
+    fun findWakeName(text: String, wakeNames: List<String>): Int? {
+        val norm = text.lowercase().replace('ё', 'е')
+        val names = wakeNames.map { it.lowercase().replace('ё', 'е').trim() }.filter { it.length >= 2 }
+        names.mapNotNull { n -> norm.indexOf(n).takeIf { it >= 0 }?.let { it + n.length } }.minOrNull()?.let { end ->
+            // «архангелА позови» — окончание (до 2 букв) относится к имени, а не к команде
+            var e = end
+            while (e < norm.length && e - end < 2 && norm[e].isLetter()) e++
+            return if (e < norm.length && norm[e].isLetter()) end else e
+        }
+        // Нечёткое совпадение по отдельным словам (только для однословных имён от 4 букв)
+        val single = names.filter { ' ' !in it && it.length >= 4 }
+        for (m in Regex("[\\p{L}]+").findAll(norm)) {
+            val w = m.value
+            for (n in single) {
+                val allowed = if (n.length >= 6) 2 else 1
+                // Падежное окончание: «архангела», «джарвису» — отбрасываем до 2 букв в конце
+                val stem = if (n.length >= 5 && w.length in (n.length + 1)..(n.length + 2) && w.startsWith(n.dropLast(1))) w.take(n.length) else w
+                if (kotlin.math.abs(stem.length - n.length) <= allowed && distance(stem, n) <= allowed) return m.range.last + 1
+            }
+        }
+        return null
+    }
+
+    private fun distance(a: String, b: String): Int {
+        var prev = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            val cur = IntArray(b.length + 1)
+            cur[0] = i
+            for (j in 1..b.length) {
+                cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1)
+            }
+            prev = cur
+        }
+        return prev[b.length]
+    }
+
     fun normalize(raw: String, wakeNames: List<String> = listOf("архангел")): String =
         stripWakeName(
             raw.lowercase().replace('ё', 'е').trim().trimEnd('.', '!', '?'),

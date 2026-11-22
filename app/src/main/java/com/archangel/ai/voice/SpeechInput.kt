@@ -18,9 +18,14 @@ class SpeechInput(
     private val onFinal: (String) -> Unit,
     private val onLevel: (Float) -> Unit,
     private val onError: (String) -> Unit,
+    /** Код ошибки распознавания (нужен режиму ожидания, чтобы отличать тишину от сбоя). */
+    private val onErrorCode: (Int) -> Unit = {},
 ) {
     private var recognizer: SpeechRecognizer? = null
     var isListening = false
+        private set
+    /** Все варианты последней распознанной фразы (имя могло попасть только во второй вариант). */
+    var lastAlternatives: List<String> = emptyList()
         private set
 
     val available get() = SpeechRecognizer.isRecognitionAvailable(context)
@@ -30,6 +35,7 @@ class SpeechInput(
     private val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var muted = false
+    private val focus = AudioFocus.forListening(context)
 
     private fun muteBeep() {
         if (!quiet || audio.isMusicActive) return
@@ -50,13 +56,26 @@ class SpeechInput(
         }
     }
 
-    fun start() {
+    /** Офлайн-распознавание на устройстве сломалось (нет русской модели) — больше не пробуем. */
+    private var onDeviceBroken = false
+
+    private fun onDeviceAvailable(): Boolean =
+        android.os.Build.VERSION.SDK_INT >= 33 && !onDeviceBroken &&
+            runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }.getOrDefault(false)
+
+    /**
+     * @param background режим ожидания имени: по возможности распознаём прямо на телефоне —
+     * без интернета, быстрее и экономнее для батареи.
+     */
+    fun start(background: Boolean = false) {
         if (!available) {
             onError("На телефоне нет службы распознавания речи. Установите приложение Google.")
             return
         }
         stop()
-        val r = SpeechRecognizer.createSpeechRecognizer(context)
+        val onDevice = background && onDeviceAvailable()
+        val r = if (onDevice && android.os.Build.VERSION.SDK_INT >= 31) SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+        else SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = r
         r.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {}
@@ -69,13 +88,20 @@ class SpeechInput(
             override fun onEndOfSpeech() {}
             override fun onError(error: Int) {
                 isListening = false
+                focus.release()
                 onLevel(0f)
+                // Нет офлайн-модели для языка — переходим на обычное распознавание
+                if (onDevice && (error == 12 || error == 13 || error == SpeechRecognizer.ERROR_CLIENT)) onDeviceBroken = true
+                onErrorCode(error)
                 onError(describe(error))
             }
             override fun onResults(results: Bundle?) {
                 isListening = false
+                focus.release()
                 onLevel(0f)
-                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+                lastAlternatives = list
+                val text = list.firstOrNull().orEmpty()
                 if (text.isBlank()) onError("Не расслышал. Попробуйте ещё раз.") else onFinal(text)
             }
             override fun onPartialResults(partialResults: Bundle?) {
@@ -88,8 +114,11 @@ class SpeechInput(
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, if (background) 3 else 1)
+            .apply { if (background) putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true) }
         isListening = true
+        // Музыку ставим на паузу только при обычном прослушивании, не в режиме ожидания
+        if (!background) focus.acquire()
         muteBeep()
         r.startListening(intent)
     }
@@ -101,6 +130,7 @@ class SpeechInput(
 
     fun stop() {
         isListening = false
+        focus.release()
         recognizer?.let {
             it.cancel()
             it.destroy()
@@ -114,6 +144,12 @@ class SpeechInput(
         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Нет доступа к микрофону."
         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Микрофон занят. Попробуйте ещё раз."
         SpeechRecognizer.ERROR_AUDIO -> "Ошибка записи звука."
+        12, 13 -> "Этот язык не поддерживается распознаванием."
         else -> "Распознавание прервалось (код $code)."
+    }
+
+    companion object {
+        /** Тишина или неразборчивая речь — для режима ожидания это норма, а не сбой. */
+        fun isSilence(code: Int) = code == SpeechRecognizer.ERROR_NO_MATCH || code == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
     }
 }

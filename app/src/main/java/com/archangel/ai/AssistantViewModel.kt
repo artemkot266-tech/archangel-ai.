@@ -95,11 +95,18 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         onPartial = { if (!passive) partial = it },
         onFinal = ::onVoiceFinal,
         onLevel = { if (!passive) level = it },
+        onErrorCode = { lastSpeechError = it },
         onError = { msg ->
             if (passive) {
                 passive = false
-                standbyFailures++
-                refreshStandby(if (standbyFailures > 5) 8_000 else 400)
+                // Тишина — норма: сразу слушаем дальше. Паузы — только при настоящих сбоях.
+                if (SpeechInput.isSilence(lastSpeechError)) {
+                    standbyFailures = 0
+                    refreshStandby(150)
+                } else {
+                    standbyFailures++
+                    refreshStandby(if (standbyFailures > 5) 8_000 else 600)
+                }
             } else {
                 partial = ""
                 hint = msg
@@ -253,6 +260,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     private var passive = false
     private var standbyFailures = 0
+    private var lastSpeechError = 0
     private var standbyJob: Job? = null
     /** Приложение на экране (UI сообщает из жизненного цикла активности). */
     var foreground by mutableStateOf(false)
@@ -283,7 +291,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 if (!speech.isListening) {
                     passive = true
                     speech.quiet = true
-                    speech.start()
+                    speech.start(background = true)
                 }
             } else if (passive) {
                 passive = false
@@ -293,20 +301,35 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun handleWake(text: String) {
-        val norm = text.lowercase().replace('ё', 'е')
-        val names = wakeNames().map { it.lowercase().replace('ё', 'е') }.filter { it.isNotBlank() }
-        val pos = names.mapNotNull { n -> norm.indexOf(n).takeIf { it >= 0 }?.let { it + n.length } }.minOrNull()
-        if (pos == null) {
+        // Имя могло оказаться только в одном из вариантов распознавания
+        val candidates = (listOf(text) + speech.lastAlternatives).distinct()
+        val hit = candidates.firstNotNullOfOrNull { c -> CommandParser.findWakeName(c, wakeNames())?.let { c to it } }
+        if (hit == null) {
             standbyFailures = 0
-            refreshStandby(200)
+            refreshStandby(150)
             return
         }
+        val (heard, pos) = hit
         standbyFailures = 0
-        val rest = text.substring(minOf(pos, text.length)).trim(' ', ',', '.', '!', '?')
+        wakeBuzz()
+        val rest = heard.substring(minOf(pos, heard.length)).trim(' ', ',', '.', '!', '?')
         if (rest.isEmpty()) {
             speakLine("Слушаю.")
             autoListen = true
         } else send(rest, fromVoice = true)
+    }
+
+    /** Короткая вибрация: «услышал имя» — понятно и при выключенном экране. */
+    private fun wakeBuzz() {
+        runCatching {
+            val effect = android.os.VibrationEffect.createOneShot(40, android.os.VibrationEffect.DEFAULT_AMPLITUDE)
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                graph.getSystemService(android.os.VibratorManager::class.java).defaultVibrator.vibrate(effect)
+            } else {
+                @Suppress("DEPRECATION")
+                (graph.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator).vibrate(effect)
+            }
+        }
     }
 
     // ───────────── Зрение: фото в вопросе ─────────────

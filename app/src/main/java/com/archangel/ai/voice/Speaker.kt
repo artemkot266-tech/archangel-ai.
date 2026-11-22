@@ -42,6 +42,9 @@ class Speaker(
 ) {
     private val app = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
+    private val focus = AudioFocus.forSpeech(app)
+    private fun started() { focus.acquire(); onStart() }
+    private fun finished() { focus.release(); onDone() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var ready = false
     private var counter = 0
@@ -63,12 +66,18 @@ class Speaker(
 
     init {
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) { main.post { onStart() } }
-            override fun onDone(utteranceId: String?) { main.post { onDone() } }
+            override fun onStart(utteranceId: String?) { main.post { started() } }
+            override fun onDone(utteranceId: String?) { main.post { finished() } }
             @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) { main.post { onDone() } }
-            override fun onError(utteranceId: String?, errorCode: Int) { main.post { onDone() } }
+            override fun onError(utteranceId: String?) { main.post { finished() } }
+            override fun onError(utteranceId: String?, errorCode: Int) { main.post { finished() } }
         })
+        runCatching {
+            tts.setAudioAttributes(
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+            )
+        }
     }
 
     /** Голоса для языка телефона: сначала лучшие и офлайн-голоса. */
@@ -115,7 +124,7 @@ class Speaker(
     }
 
     private fun speakEleven(text: String, s: AppSettings) {
-        onStart()
+        started()
         cloudJob = scope.launch {
             try {
                 val file = synthesizeEleven(text, s)
@@ -124,7 +133,7 @@ class Speaker(
                 throw e
             } catch (e: Exception) {
                 // ElevenLabs недоступен — говорим системным голосом
-                if (!speakSystem(text, s)) onDone()
+                if (!speakSystem(text, s)) finished()
             }
         }
     }
@@ -163,8 +172,8 @@ class Speaker(
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
         )
-        mp.setOnCompletionListener { releasePlayer(); onDone() }
-        mp.setOnErrorListener { _, _, _ -> releasePlayer(); onDone(); true }
+        mp.setOnCompletionListener { releasePlayer(); finished() }
+        mp.setOnErrorListener { _, _, _ -> releasePlayer(); finished(); true }
         mp.setDataSource(file.absolutePath)
         mp.prepare()
         mp.start()
@@ -181,6 +190,7 @@ class Speaker(
         cloudJob = null
         releasePlayer()
         if (ready) tts.stop()
+        focus.release()
     }
 
     fun release() {
