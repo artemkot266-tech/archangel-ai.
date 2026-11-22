@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- сфера -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M54,47m-15,0a15,15 0,1 1,30 0a15,15 0,1 1,-30 0" />
+    <!-- капля -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M54,66m-2.2,0a2.2,2.2 0,1 1,4.4 0a2.2,2.2 0,1 1,-4.4 0" />
+    <!-- лужа -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M54,75m-17,0a17,3.2 0,1 1,34 0a17,3.2 0,1 1,-34 0" />
+</vector>

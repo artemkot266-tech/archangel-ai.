@@ -12,8 +12,8 @@ android {
         applicationId = "com.archangel.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.12.0"
+        versionCode = 16
+        versionName = "0.12.1"
     }
 
     // Постоянный debug-ключ в репозитории: каждая новая сборка ставится
@@ -31,8 +31,11 @@ android {
         debug {
             signingConfig = signingConfigs.getByName("debug")
         }
+        // Релизная сборка: не отладочная (сканеры безопасности не придираются) и заметно быстрее.
+        // Подпись та же, что у прежних версий, — обновление ставится поверх.
         release {
             isMinifyEnabled = false
+            isDebuggable = false
             signingConfig = signingConfigs.getByName("debug")
         }
     }

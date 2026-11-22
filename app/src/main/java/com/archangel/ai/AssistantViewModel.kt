@@ -30,7 +30,6 @@ import com.archangel.ai.features.CalendarHelper
 import com.archangel.ai.features.Guardian
 import com.archangel.ai.features.HomeAssistant
 import com.archangel.ai.features.ImageUtil
-import com.archangel.ai.features.NotificationWatcher
 import com.archangel.ai.features.Weather
 import com.archangel.ai.market.AlertScheduler
 import com.archangel.ai.market.AlertStore
@@ -749,23 +748,11 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }
-            PhoneAction.ReadMessages -> {
-                if (!NotificationWatcher.isEnabled(graph)) {
-                    reply(
-                        "Чтобы читать сообщения, разрешите мне доступ к уведомлениям — открываю настройки, включите «Архангел». " +
-                            "Если переключатель серый: Настройки → Приложения → ARCHANGEL AI → ⋮ → «Разрешить ограниченные настройки».",
-                        viaVoice,
-                    )
-                    graph.phone.openNotificationAccess()
-                } else {
-                    val list = NotificationWatcher.latest()
-                    reply(
-                        if (list.isEmpty()) "Новых сообщений нет."
-                        else "Последние сообщения. " + list.take(5).joinToString(". ") { "${it.app}, ${it.title}: ${it.text.take(160)}" } + ".",
-                        viaVoice,
-                    )
-                }
-            }
+            PhoneAction.ReadMessages -> reply(
+                "Читать чужие уведомления я не могу: Google Play Защита блокирует установку приложений с таким доступом " +
+                    "не из Play Маркета. Откройте мессенджер — или скажите «открой Телеграм».",
+                viaVoice,
+            )
             else -> reply(graph.phone.execute(action), viaVoice)
         }
     }

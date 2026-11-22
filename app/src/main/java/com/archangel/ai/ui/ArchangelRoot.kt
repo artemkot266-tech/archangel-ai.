@@ -307,8 +307,6 @@ fun ArchangelRoot(
                         settings = settings,
                         voices = vm.voiceOptions,
                         memory = vm.memoryFacts,
-                        notificationsAccess = com.archangel.ai.features.NotificationWatcher.isEnabled(context),
-                        onOpenNotificationAccess = { vm.phone.openNotificationAccess() },
                         onForgetFact = { vm.forgetFact(it) },
                         onSave = { saved ->
                             app.settings.save(saved)
