@@ -27,6 +27,10 @@ import com.archangel.ai.phone.TaxiApp
 import com.archangel.ai.tasks.TaskStore
 import com.archangel.ai.data.MemoryStore
 import com.archangel.ai.features.CalendarHelper
+import com.archangel.ai.features.Guardian
+import com.archangel.ai.features.HomeAssistant
+import com.archangel.ai.features.ImageUtil
+import com.archangel.ai.features.NotificationWatcher
 import com.archangel.ai.features.Weather
 import com.archangel.ai.market.AlertScheduler
 import com.archangel.ai.market.AlertStore
@@ -88,13 +92,19 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     private val speech = SpeechInput(
         context = app,
-        onPartial = { partial = it },
+        onPartial = { if (!passive) partial = it },
         onFinal = ::onVoiceFinal,
-        onLevel = { level = it },
+        onLevel = { if (!passive) level = it },
         onError = { msg ->
-            partial = ""
-            hint = msg
-            if (core == CoreState.LISTENING) core = CoreState.IDLE
+            if (passive) {
+                passive = false
+                standbyFailures++
+                refreshStandby(if (standbyFailures > 5) 8_000 else 400)
+            } else {
+                partial = ""
+                hint = msg
+                if (core == CoreState.LISTENING) core = CoreState.IDLE
+            }
         },
     )
 
@@ -224,6 +234,71 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun wakeNames() = listOf(settings.value.wakeName, "архангел")
 
+    // ───────────── Режим ожидания: вызов по имени без касания ─────────────
+
+    private var passive = false
+    private var standbyFailures = 0
+    private var standbyJob: Job? = null
+    /** Приложение на экране (UI сообщает из жизненного цикла активности). */
+    var foreground by mutableStateOf(false)
+
+    private fun micGranted() =
+        ContextCompat.checkSelfPermission(graph, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private fun standbyWanted(): Boolean {
+        val s = settings.value
+        return s.standby && s.onboardingDone && foreground && core == CoreState.IDLE &&
+            pending == null && awaiting == null && micGranted()
+    }
+
+    /** Включает/выключает фоновое ожидание имени в зависимости от состояния. */
+    fun refreshStandby(delayMs: Long = 600) {
+        standbyJob?.cancel()
+        standbyJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(delayMs)
+            if (standbyWanted()) {
+                if (!speech.isListening) {
+                    passive = true
+                    speech.start()
+                }
+            } else if (passive) {
+                passive = false
+                speech.stop()
+            }
+        }
+    }
+
+    private fun handleWake(text: String) {
+        val norm = text.lowercase().replace('ё', 'е')
+        val names = wakeNames().map { it.lowercase().replace('ё', 'е') }.filter { it.isNotBlank() }
+        val pos = names.mapNotNull { n -> norm.indexOf(n).takeIf { it >= 0 }?.let { it + n.length } }.minOrNull()
+        if (pos == null) {
+            standbyFailures = 0
+            refreshStandby(200)
+            return
+        }
+        standbyFailures = 0
+        val rest = text.substring(minOf(pos, text.length)).trim(' ', ',', '.', '!', '?')
+        if (rest.isEmpty()) {
+            speakLine("Слушаю.")
+            autoListen = true
+        } else send(rest, fromVoice = true)
+    }
+
+    // ───────────── Зрение: фото в вопросе ─────────────
+
+    var pendingImage by mutableStateOf<String?>(null)
+        private set
+
+    fun attachImage(uri: android.net.Uri) {
+        viewModelScope.launch {
+            val path = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ImageUtil.saveScaled(graph, uri) }
+            if (path == null) hint = "Не удалось открыть фото." else pendingImage = path
+        }
+    }
+
+    fun clearImage() { pendingImage = null }
+
     // ───────────── Заметки и напоминания ─────────────
 
     private val tasks = TaskStore(app)
@@ -270,6 +345,10 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteReminder(id: Long) { tasks.deleteReminder(id); refreshTasks() }
 
     init {
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow { Triple(core, foreground, pending) }.collect { refreshStandby() }
+        }
+        viewModelScope.launch { settings.collect { refreshStandby() } }
         val saved = graph.chatStore.load()
         messages.addAll(saved)
         nextId = (saved.maxOfOrNull { it.id } ?: -1L) + 1
@@ -295,6 +374,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startListening() {
+        passive = false
         speaker.stop()
         hint = ""
         partial = ""
@@ -310,6 +390,11 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun onVoiceFinal(text: String) {
+        if (passive) {
+            passive = false
+            handleWake(text)
+            return
+        }
         partial = ""
         core = CoreState.IDLE
         dictation?.let { target ->
@@ -324,9 +409,21 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     fun send(raw: String, fromVoice: Boolean = false) {
         val text = raw.trim()
-        if (text.isEmpty()) return
+        val image = pendingImage
+        if (text.isEmpty() && image == null) return
         if (!fromVoice) draft = ""
         hint = ""
+        if (image != null) {
+            pendingImage = null
+            awaiting = null
+            add(Role.USER, text.ifBlank { "Что на этом фото?" }, image = image)
+            if (!settings.value.brain.vision) {
+                add(Role.NOTE, "${settings.value.brain.title} не видит фото. Переключите мозг на Gemini (бесплатно) или Claude в настройках.")
+                return
+            }
+            askBrain(fromVoice)
+            return
+        }
         add(Role.USER, text)
         if (resolveAwaiting(text, fromVoice)) return
         val local = CommandParser.parse(text, wakeNames())
@@ -339,8 +436,17 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         job = viewModelScope.launch {
             try {
                 val s = settings.value
-                val history = messages.filter { it.role != Role.NOTE }.takeLast(24).map {
-                    Turn(if (it.fromUser) "user" else "assistant", it.text)
+                val recent = messages.filter { it.role != Role.NOTE }.takeLast(24)
+                val lastImage = recent.lastOrNull()?.image
+                val imageB64 = lastImage?.let {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ImageUtil.base64(it) }
+                }
+                val history = recent.mapIndexed { i, m ->
+                    Turn(
+                        if (m.fromUser) "user" else "assistant",
+                        if (m.image != null && i != recent.lastIndex) m.text + " [фото]" else m.text,
+                        if (i == recent.lastIndex) imageB64 else null,
+                    )
                 }
                 val reply = graph.brain.ask(s, systemPrompt(s), history)
                 val (clean, action) = CommandParser.extractActionTag(reply)
@@ -597,8 +703,77 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                     else -> reply("Не нашёл приложение календаря.", viaVoice)
                 }
             }
+            is PhoneAction.SmartHome -> {
+                val s = settings.value
+                when {
+                    s.homeReady -> background(viaVoice) { HomeAssistant.control(s, action.on, action.target) }
+                    action.target.trim() == "свет" -> reply(graph.phone.execute(PhoneAction.Flashlight(action.on)), viaVoice)
+                    graph.phone.isInstalled("com.xiaomi.smarthome") -> {
+                        graph.phone.execute(PhoneAction.OpenApp("mi home"))
+                        reply(
+                            "Умный дом ещё не подключён ко мне — открываю Mi Home. Чтобы я управлял голосом, " +
+                                "подключите Home Assistant в настройках.",
+                            viaVoice,
+                        )
+                    }
+                    else -> reply(
+                        "Умный дом не подключён. Если у вас Home Assistant — добавьте адрес и токен в настройках, " +
+                            "и я буду управлять светом и техникой голосом.",
+                        viaVoice,
+                    )
+                }
+            }
+            is PhoneAction.GuardCheck -> {
+                val text = action.text
+                if (text.isNullOrBlank()) {
+                    reply(
+                        "Пришлите, что проверить: напишите «проверь» и вставьте ссылку или текст, " +
+                            "или в любом приложении нажмите «Поделиться» → «Проверить у Архангела».",
+                        viaVoice,
+                    )
+                } else {
+                    val v = Guardian.analyze(text)
+                    val local = Guardian.summary(v)
+                    if (!settings.value.brainReady) reply(local, viaVoice)
+                    else background(viaVoice) {
+                        val opinion = runCatching {
+                            graph.brain.ask(
+                                settings.value,
+                                "Ты — эксперт по кибербезопасности и мошенничеству. Отвечай по-русски, кратко: " +
+                                    "вердикт (безопасно / подозрительно / мошенничество), 1–3 причины и что делать.",
+                                listOf(Turn("user", "Проверь это:\n$text\n\nАвтоматические признаки: ${v.flags.joinToString("; ").ifEmpty { "не найдены" }}")),
+                                maxTokens = 500,
+                            )
+                        }.getOrNull()
+                        if (opinion == null) local else "$local\n\nМнение ИИ: $opinion"
+                    }
+                }
+            }
+            PhoneAction.ReadMessages -> {
+                if (!NotificationWatcher.isEnabled(graph)) {
+                    reply(
+                        "Чтобы читать сообщения, разрешите мне доступ к уведомлениям — открываю настройки, включите «Архангел». " +
+                            "Если переключатель серый: Настройки → Приложения → ARCHANGEL AI → ⋮ → «Разрешить ограниченные настройки».",
+                        viaVoice,
+                    )
+                    graph.phone.openNotificationAccess()
+                } else {
+                    val list = NotificationWatcher.latest()
+                    reply(
+                        if (list.isEmpty()) "Новых сообщений нет."
+                        else "Последние сообщения. " + list.take(5).joinToString(". ") { "${it.app}, ${it.title}: ${it.text.take(160)}" } + ".",
+                        viaVoice,
+                    )
+                }
+            }
             else -> reply(graph.phone.execute(action), viaVoice)
         }
+    }
+
+    /** Текст из «Поделиться» другого приложения — проверяем «Защитником». */
+    fun checkShared(text: String) {
+        navigateTo = AppScreen.CHAT
+        send("Проверь сообщение: $text")
     }
 
     /** Меняется, когда добавлено ценовое уведомление — «Рынок» перечитывает список. */
@@ -764,8 +939,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     // ───────────── История ─────────────
 
-    private fun add(role: Role, text: String, persist: Boolean = true) {
-        messages.add(ChatMessage(nextId++, text, role))
+    private fun add(role: Role, text: String, persist: Boolean = true, image: String? = null) {
+        messages.add(ChatMessage(nextId++, text, role, image = image))
         if (persist) graph.chatStore.save(messages)
     }
 
@@ -780,6 +955,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     val phone: PhoneController get() = graph.phone
 
     override fun onCleared() {
+        standbyJob?.cancel()
         speech.stop()
         speaker.release()
         super.onCleared()

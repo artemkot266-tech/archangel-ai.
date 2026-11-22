@@ -69,6 +69,28 @@ object CommandParser {
         Regex("^(открой|покажи)\\s+(настройки архангела|настройки приложения)$").find(s)
             ?.let { return PhoneAction.Screen(AppScreen.SETTINGS) }
 
+        // «Защитник»: проверка ссылок и подозрительных сообщений
+        val hasUrl = Regex("(https?://|www\\.)\\S+").containsMatchIn(s)
+        val guardWords = Regex("(ссылк|сайт|сообщени|смс|номер|развод|мошен|безопасн)").containsMatchIn(s)
+        if ((s.startsWith("провер") && (hasUrl || guardWords)) || s.startsWith("это развод") || s.startsWith("это мошен")) {
+            val rest = Regex("(?i)^\\s*([\\p{L}]+[,!]\\s+)?(проверь|проверить|провери)?\\s*(ссылку|сайт|сообщение|смс|это|номер)?\\s*[:,]?\\s*")
+                .replace(raw.trim(), "")
+            return PhoneAction.GuardCheck(rest.trim().ifEmpty { null })
+        }
+
+        // Сообщения из уведомлений
+        Regex("^(что мне (написали|пишут|пришло)|прочитай (мои |новые |последние )?(сообщения|уведомления)|(есть )?новые сообщения|кто мне (написал|писал))").find(s)?.let {
+            return PhoneAction.ReadMessages
+        }
+
+        // Умный дом: «включи свет в спальне», «выключи кондиционер»
+        Regex("^(включи|выключи|зажги|погаси|запусти|останови)\\s+(.*?)(свет|лампу|лампы|люстру|подсветку|розетку|кондиционер|обогреватель|телевизор|пылесос|чайник|вентилятор|увлажнитель|бойлер|телик|гирлянду)(.*)$").find(s)?.let { m ->
+            val verb = m.groupValues[1]
+            val on = verb in setOf("включи", "зажги", "запусти")
+            val target = (m.groupValues[2] + m.groupValues[3] + m.groupValues[4]).trim()
+            return PhoneAction.SmartHome(on, target)
+        }
+
         // Память
         Regex("^(что ты (обо мне|про меня) (знаешь|помнишь)|что ты помнишь)").find(s)?.let { return PhoneAction.ShowMemory }
         Regex("^запомни\\s*[:,]?\\s*(что\\s+)?(.*)$").find(s)?.let { return PhoneAction.Remember(it.groupValues[2].trim().ifEmpty { null }) }
@@ -180,8 +202,8 @@ object CommandParser {
         }
 
         // Фонарик
-        if (Regex("(включи|зажги)\\s+(фонарик|фонарь|свет)").containsMatchIn(s)) return PhoneAction.Flashlight(true)
-        if (Regex("(выключи|погаси)\\s+(фонарик|фонарь|свет)").containsMatchIn(s)) return PhoneAction.Flashlight(false)
+        if (Regex("(включи|зажги)\\s+(фонарик|фонарь)").containsMatchIn(s)) return PhoneAction.Flashlight(true)
+        if (Regex("(выключи|погаси)\\s+(фонарик|фонарь)").containsMatchIn(s)) return PhoneAction.Flashlight(false)
 
         // Громкость
         when {

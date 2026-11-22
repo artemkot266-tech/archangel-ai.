@@ -49,6 +49,8 @@
         <package android:name="ua.com.uklontaxi" />
         <package android:name="ee.mtakso.client" />
         <package android:name="com.ubercab" />
+        <package android:name="com.xiaomi.smarthome" />
+        <package android:name="com.google.android.apps.chromecast.app" />
         <!-- «Открой Telegram» — поиск установленных приложений по названию -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -76,7 +78,31 @@
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
+            <!-- «Поделиться → Архангел»: проверка ссылок и сообщений «Защитником» -->
+            <intent-filter android:label="Проверить у Архангела">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
+
+        <service
+            android:name=".features.NotificationWatcher"
+            android:exported="false"
+            android:label="Архангел: чтение сообщений"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
 
         <receiver android:name=".tasks.ReminderReceiver" android:exported="false" />
         <receiver android:name=".features.BriefingReceiver" android:exported="false" />

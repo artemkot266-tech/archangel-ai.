@@ -123,4 +123,24 @@ class CommandParserTest {
         val c = Calendar.getInstance().apply { timeInMillis = a.at!! }
         assertEquals(15, c.get(Calendar.HOUR_OF_DAY))
     }
+
+    // ───── v0.12: умный дом, защитник, сообщения
+    @Test fun lightOn() = assertEquals(PhoneAction.SmartHome(true, "свет в спальне"), p("включи свет в спальне"))
+    @Test fun acOff() = assertEquals(PhoneAction.SmartHome(false, "кондиционер"), p("выключи кондиционер"))
+    @Test fun torchStillTorch() = assertEquals(PhoneAction.Flashlight(true), p("включи фонарик"))
+    @Test fun guardLink() = assertEquals(
+        PhoneAction.GuardCheck("https://privat24-bonus.xyz/login"),
+        CommandParser.parse("Проверь ссылку https://privat24-bonus.xyz/login"),
+    )
+    @Test fun guardAsks() = assertEquals(PhoneAction.GuardCheck(null), p("проверь ссылку"))
+    @Test fun checkPortfolioIsNotGuard() = assertEquals(PhoneAction.Portfolio, p("мой портфель"))
+    @Test fun messages() = assertEquals(PhoneAction.ReadMessages, p("что мне написали"))
+    @Test fun guardianFlagsFake() {
+        val v = com.archangel.ai.features.Guardian.analyze("https://privat24-bonus.xyz/login")
+        assertTrue(v.danger >= 3)
+    }
+    @Test fun guardianOkOfficial() {
+        val v = com.archangel.ai.features.Guardian.analyze("https://www.privat24.ua/")
+        assertEquals(0, v.danger)
+    }
 }

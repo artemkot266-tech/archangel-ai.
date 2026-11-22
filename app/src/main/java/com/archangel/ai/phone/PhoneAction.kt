@@ -54,6 +54,12 @@ sealed class PhoneAction {
     data class CalendarAdd(val title: String?, val at: Long?) : PhoneAction()
     /** «Что у меня сегодня?» */
     object Agenda : PhoneAction()
+    /** Умный дом: «включи свет в спальне». */
+    data class SmartHome(val on: Boolean, val target: String) : PhoneAction()
+    /** «Защитник»: проверить ссылку или текст на мошенничество. */
+    data class GuardCheck(val text: String?) : PhoneAction()
+    /** «Что мне написали?» */
+    object ReadMessages : PhoneAction()
 }
 
 enum class VolumeDir { UP, DOWN, MUTE, MAX }

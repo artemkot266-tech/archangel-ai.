@@ -13,14 +13,23 @@ enum class Brain(
     val keyUrl: String,
     val free: Boolean,
     val note: String,
+    val recommended: Boolean = false,
+    /** Понимает ли картинки («зрение»). */
+    val vision: Boolean = true,
+    /** Запасные модели: если основная недоступна на тарифе — пробуем следующую. */
+    val fallbackModels: List<String> = emptyList(),
 ) {
+    GEMINI(
+        "Gemini", "gemini-3.8-flash", "https://generativelanguage.googleapis.com/v1beta/openai",
+        "https://aistudio.google.com/apikey", true, "Рекомендуем: бесплатно, умный, видит фото",
+        recommended = true,
+        fallbackModels = listOf("gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"),
+    ),
     GROQ(
         "Groq", "openai/gpt-oss-120b", "https://api.groq.com/openai/v1",
         "https://console.groq.com/keys", true, "Бесплатно, очень быстрый",
-    ),
-    GEMINI(
-        "Gemini", "gemini-3.8-flash", "https://generativelanguage.googleapis.com/v1beta/openai",
-        "https://aistudio.google.com/apikey", true, "Бесплатно от Google",
+        vision = false,
+        fallbackModels = listOf("openai/gpt-oss-20b"),
     ),
     OPENROUTER(
         "OpenRouter", "openrouter/free", "https://openrouter.ai/api/v1",
@@ -29,6 +38,7 @@ enum class Brain(
     DEEPSEEK(
         "DeepSeek", "deepseek-chat", "https://api.deepseek.com",
         "https://platform.deepseek.com/api_keys", false, "Платно, но очень дёшево",
+        vision = false,
     ),
     CLAUDE(
         "Claude", "claude-sonnet-5-5", "https://api.anthropic.com",
@@ -57,7 +67,7 @@ enum class VoiceEngine(val title: String) {
 }
 
 data class AppSettings(
-    val brain: Brain = Brain.GROQ,
+    val brain: Brain = Brain.GEMINI,
     val keys: Map<Brain, String> = emptyMap(),
     val models: Map<Brain, String> = emptyMap(),
     val baseUrls: Map<Brain, String> = emptyMap(),
@@ -85,6 +95,11 @@ data class AppSettings(
     val briefingEnabled: Boolean = false,
     val briefingHour: Int = 8,
     val briefingMinute: Int = 0,
+    /** Режим ожидания: пока приложение открыто, слушает и откликается на имя без касания. */
+    val standby: Boolean = false,
+    /** Home Assistant: адрес вида http://192.168.1.10:8123 и долгоживущий токен. */
+    val haUrl: String = "",
+    val haToken: String = "",
     // Биржа
     val binanceKey: String = "",
     val binanceSecret: String = "",
@@ -95,6 +110,7 @@ data class AppSettings(
     fun baseUrlFor(b: Brain = brain) = baseUrls[b]?.takeIf { it.isNotBlank() } ?: b.defaultBaseUrl
     val brainReady get() = keyFor().isNotBlank()
     val exchangeReady get() = binanceKey.isNotBlank() && binanceSecret.isNotBlank()
+    val homeReady get() = haUrl.isNotBlank() && haToken.isNotBlank()
 
     companion object {
         const val DEFAULT_PERSONA =
@@ -115,7 +131,7 @@ class SettingsStore(context: Context) {
 
     private fun load(): AppSettings {
         val brain = runCatching { Brain.valueOf(prefs.getString("brain", null) ?: "") }
-            .getOrDefault(Brain.GROQ)
+            .getOrDefault(Brain.GEMINI)
         val engine = runCatching { VoiceEngine.valueOf(prefs.getString("voice_engine", null) ?: "") }
             .getOrDefault(VoiceEngine.SYSTEM)
         return AppSettings(
@@ -143,6 +159,9 @@ class SettingsStore(context: Context) {
             briefingEnabled = prefs.getBoolean("briefing", false),
             briefingHour = prefs.getInt("briefing_hour", 8),
             briefingMinute = prefs.getInt("briefing_minute", 0),
+            standby = prefs.getBoolean("standby", false),
+            haUrl = prefs.getString("ha_url", "") ?: "",
+            haToken = SecretBox.decrypt(prefs.getString("ha_token", "") ?: ""),
             binanceKey = SecretBox.decrypt(prefs.getString("bn_key", "") ?: ""),
             binanceSecret = SecretBox.decrypt(prefs.getString("bn_secret", "") ?: ""),
             binanceTestnet = prefs.getBoolean("bn_testnet", true),
@@ -185,6 +204,9 @@ class SettingsStore(context: Context) {
             putBoolean("briefing", clean.briefingEnabled)
             putInt("briefing_hour", clean.briefingHour)
             putInt("briefing_minute", clean.briefingMinute)
+            putBoolean("standby", clean.standby)
+            putString("ha_url", clean.haUrl.trim().trimEnd('/'))
+            putString("ha_token", SecretBox.encrypt(clean.haToken.trim()))
             putString("bn_key", SecretBox.encrypt(clean.binanceKey))
             putString("bn_secret", SecretBox.encrypt(clean.binanceSecret))
             putBoolean("bn_testnet", clean.binanceTestnet)

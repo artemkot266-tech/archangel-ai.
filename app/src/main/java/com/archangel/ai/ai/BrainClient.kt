@@ -6,7 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Одна реплика для ИИ: role = "user" или "assistant". */
-data class Turn(val role: String, val text: String)
+data class Turn(val role: String, val text: String, val imageJpegBase64: String? = null)
 
 /**
  * «Мозг» ассистента: отправляет диалог в Claude, DeepSeek
@@ -25,9 +25,37 @@ class BrainClient {
         if (clean.isEmpty()) throw FriendlyException("Пустой запрос.")
         return when (settings.brain) {
             Brain.CLAUDE -> askClaude(settings, key, system, clean, maxTokens)
-            else -> askOpenAiCompatible(settings, key, system, clean, maxTokens)
+            else -> askWithFallback(settings, key, system, clean, maxTokens)
         }
     }
+
+    /**
+     * Модель могла смениться или быть недоступной на бесплатном тарифе — тогда пробуем запасные
+     * (только если пользователь не задал модель сам). Удачную запоминаем до перезапуска.
+     */
+    private val workingModel = HashMap<Brain, String>()
+
+    private suspend fun askWithFallback(
+        s: AppSettings, key: String, system: String, turns: List<Turn>, maxTokens: Int,
+    ): String {
+        val custom = s.models[s.brain]?.isNotBlank() == true
+        val candidates = if (custom) listOf(s.modelFor())
+        else (listOfNotNull(workingModel[s.brain]) + s.brain.defaultModel + s.brain.fallbackModels).distinct()
+        var last: FriendlyException? = null
+        for (model in candidates) {
+            try {
+                val text = askOpenAiCompatible(s.copy(models = s.models + (s.brain to model)), key, system, turns, maxTokens)
+                workingModel[s.brain] = model
+                return text
+            } catch (e: ModelUnavailable) {
+                last = FriendlyException(e.message ?: "Модель недоступна")
+            }
+        }
+        throw last ?: FriendlyException("Модель недоступна.")
+    }
+
+    /** Ошибка, при которой стоит попробовать другую модель (не ключ и не сеть). */
+    private class ModelUnavailable(message: String) : Exception(message)
 
     /** API требуют чередования user/assistant и первой реплики от пользователя. */
     private fun normalize(turns: List<Turn>): List<Turn> {
@@ -35,7 +63,7 @@ class BrainClient {
         for (t in turns.filter { it.text.isNotBlank() }) {
             if (out.isEmpty() && t.role != "user") continue
             if (out.isNotEmpty() && out.last().role == t.role) {
-                out[out.lastIndex] = Turn(t.role, out.last().text + "\n\n" + t.text)
+                out[out.lastIndex] = Turn(t.role, out.last().text + "\n\n" + t.text, t.imageJpegBase64 ?: out.last().imageJpegBase64)
             } else out.add(t)
         }
         while (out.isNotEmpty() && out.last().role != "user") out.removeAt(out.lastIndex)
@@ -46,7 +74,19 @@ class BrainClient {
         s: AppSettings, key: String, system: String, turns: List<Turn>, maxTokens: Int,
     ): String {
         val messages = JSONArray()
-        turns.forEach { messages.put(JSONObject().put("role", it.role).put("content", it.text)) }
+        turns.forEach { t ->
+            val content: Any = if (t.imageJpegBase64 != null) {
+                JSONArray()
+                    .put(
+                        JSONObject().put("type", "image").put(
+                            "source",
+                            JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", t.imageJpegBase64),
+                        )
+                    )
+                    .put(JSONObject().put("type", "text").put("text", t.text))
+            } else t.text
+            messages.put(JSONObject().put("role", t.role).put("content", content))
+        }
         val body = JSONObject()
             .put("model", s.modelFor())
             .put("max_tokens", maxTokens)
@@ -76,7 +116,17 @@ class BrainClient {
         s: AppSettings, key: String, system: String, turns: List<Turn>, maxTokens: Int,
     ): String {
         val messages = JSONArray().put(JSONObject().put("role", "system").put("content", system))
-        turns.forEach { messages.put(JSONObject().put("role", it.role).put("content", it.text)) }
+        turns.forEach { t ->
+            val content: Any = if (t.imageJpegBase64 != null) {
+                JSONArray()
+                    .put(JSONObject().put("type", "text").put("text", t.text))
+                    .put(
+                        JSONObject().put("type", "image_url")
+                            .put("image_url", JSONObject().put("url", "data:image/jpeg;base64," + t.imageJpegBase64))
+                    )
+            } else t.text
+            messages.put(JSONObject().put("role", t.role).put("content", content))
+        }
         val body = JSONObject()
             .put("model", s.modelFor())
             .put("max_tokens", maxTokens)
@@ -90,7 +140,14 @@ class BrainClient {
             ),
             body = body.toString(),
         )
-        if (!res.ok) throw FriendlyException(explain(res, s.brain))
+        if (!res.ok) {
+            val modelProblem = res.code == 404 || (res.code == 400 && res.body.contains("model", ignoreCase = true)) ||
+                (res.code == 429 && s.brain.fallbackModels.isNotEmpty())
+            if (modelProblem && s.models[s.brain]?.isNotBlank() == true && s.brain.fallbackModels.isNotEmpty()) {
+                throw ModelUnavailable(explain(res, s.brain))
+            }
+            throw FriendlyException(explain(res, s.brain))
+        }
         val choices = JSONObject(res.body).optJSONArray("choices")
         val text = choices?.optJSONObject(0)?.optJSONObject("message")?.optString("content").orEmpty()
         return text.trim().ifEmpty { throw FriendlyException("ИИ вернул пустой ответ.") }

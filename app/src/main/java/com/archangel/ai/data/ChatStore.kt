@@ -12,6 +12,8 @@ data class ChatMessage(
     val text: String,
     val role: Role,
     val time: Long = System.currentTimeMillis(),
+    /** Путь к фото, если сообщение с картинкой («зрение»). */
+    val image: String? = null,
 ) {
     val fromUser get() = role == Role.USER
 }
@@ -30,6 +32,7 @@ class ChatStore(context: Context) {
                     text = o.getString("text"),
                     role = runCatching { Role.valueOf(o.getString("role")) }.getOrDefault(Role.NOTE),
                     time = o.optLong("time", 0L),
+                    image = o.optString("image").ifBlank { null },
                 )
             }
         }
@@ -47,6 +50,7 @@ class ChatStore(context: Context) {
                     .put("text", it.text)
                     .put("role", it.role.name)
                     .put("time", it.time)
+                    .put("image", it.image ?: "")
             )
         }
         runCatching { file.writeText(arr.toString()) }

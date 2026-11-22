@@ -134,7 +134,11 @@ class PhoneController(private val context: Context) {
         else -> "" // память, погода, брифинг, портфель, календарь — обрабатывает AssistantViewModel
     }
 
-    fun isInstalled(pkg: String): Boolean =
+    /** Экран «Доступ к уведомлениям» — там включается чтение сообщений. */
+    fun openNotificationAccess(): Boolean =
+        start(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+
+        fun isInstalled(pkg: String): Boolean =
         context.packageManager.getLaunchIntentForPackage(pkg) != null
 
     fun installedMusicApps(): List<MusicApp> = MusicApp.entries.filter { isInstalled(it.pkg) }

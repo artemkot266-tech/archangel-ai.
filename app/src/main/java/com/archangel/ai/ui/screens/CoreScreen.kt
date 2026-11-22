@@ -142,6 +142,7 @@ fun CoreScreen(
         val caption = when {
             partial.isNotBlank() -> "«$partial»"
             hint.isNotBlank() -> hint
+            state == CoreState.IDLE && settings.standby -> "Режим ожидания: скажите «${settings.wakeName}» — и команду"
             state == CoreState.IDLE && lastReply != null -> lastReply.text
             else -> state.hint
         }

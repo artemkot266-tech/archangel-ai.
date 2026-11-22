@@ -96,7 +96,12 @@ enum class LaunchAction {
 }
 
 @Composable
-fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () -> Unit = {}) {
+fun ArchangelRoot(
+    launchAction: LaunchAction? = null,
+    onLaunchActionHandled: () -> Unit = {},
+    sharedText: String? = null,
+    onSharedHandled: () -> Unit = {},
+) {
     val vm: AssistantViewModel = viewModel()
     val market: MarketViewModel = viewModel()
     val context = LocalContext.current
@@ -145,6 +150,42 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
             vm.needCalendarPermission = false
             calendarLauncher.launch(Manifest.permission.READ_CALENDAR)
         }
+    }
+
+    // Жизненный цикл: режим ожидания слушает только когда приложение на экране
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            when (e) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> { vm.foreground = true; vm.refreshTasks() }
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> { vm.foreground = false; vm.refreshStandby(0) }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+
+    // Режим ожидания включили — нужен микрофон
+    val standbyMicLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { vm.refreshStandby() }
+    LaunchedEffect(settings.standby) {
+        if (settings.standby && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            standbyMicLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    // «Поделиться → Архангел»
+    LaunchedEffect(sharedText) {
+        sharedText?.let { vm.checkShared(it); onSharedHandled() }
+    }
+
+    // Зрение: камера и галерея
+    var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) cameraUri?.let { vm.attachImage(it) }
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { vm.attachImage(it) }
     }
 
     // ── Команды от ассистента
@@ -234,6 +275,18 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
                         onDraftChange = { vm.draft = it },
                         onSend = { vm.send(vm.draft) },
                         onMic = { listen() },
+                        pendingImage = vm.pendingImage,
+                        onCamera = {
+                            val u = com.archangel.ai.features.ImageUtil.cameraUri(context)
+                            cameraUri = u
+                            cameraLauncher.launch(u)
+                        },
+                        onGallery = {
+                            galleryLauncher.launch(
+                                androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        onClearImage = { vm.clearImage() },
                     )
                     AppScreen.TASKS -> TasksScreen(
                         notes = vm.notes,
@@ -254,6 +307,8 @@ fun ArchangelRoot(launchAction: LaunchAction? = null, onLaunchActionHandled: () 
                         settings = settings,
                         voices = vm.voiceOptions,
                         memory = vm.memoryFacts,
+                        notificationsAccess = com.archangel.ai.features.NotificationWatcher.isEnabled(context),
+                        onOpenNotificationAccess = { vm.phone.openNotificationAccess() },
                         onForgetFact = { vm.forgetFact(it) },
                         onSave = { saved ->
                             app.settings.save(saved)

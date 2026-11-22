@@ -73,6 +73,8 @@ fun SettingsScreen(
     voices: List<VoiceOption>,
     memory: List<String>,
     onForgetFact: (String) -> Unit,
+    notificationsAccess: Boolean = false,
+    onOpenNotificationAccess: () -> Unit = {},
     onSave: (AppSettings) -> Unit,
     onClearHistory: () -> Unit,
     onPreviewVoice: (AppSettings) -> Unit,
@@ -184,6 +186,51 @@ fun SettingsScreen(
             colors = SliderDefaults.colors(
                 thumbColor = Bone, activeTrackColor = Bone, inactiveTrackColor = Hairline,
             ),
+        )
+
+        // ── Режим ожидания
+        Spacer(Modifier.height(20.dp))
+        MonoLabel("Режим ожидания", color = Bone)
+        Spacer(Modifier.height(6.dp))
+        Toggle(
+            "Отклик на имя без касания",
+            s.standby,
+            sub = "Пока Архангел открыт на экране, он слушает и откликается на «${s.wakeName.ifBlank { "Архангел" }}». " +
+                "Расходует больше батареи; телефон может коротко пикать при перезапуске микрофона.",
+        ) { s = s.copy(standby = it) }
+
+        // ── Сообщения
+        Spacer(Modifier.height(20.dp))
+        MonoLabel("Чтение сообщений", color = Bone)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (notificationsAccess) "Доступ к уведомлениям есть. Спросите: «Что мне написали?»"
+            else "Чтобы отвечать на «что мне написали?», нужен доступ к уведомлениям. Если переключатель серый: " +
+                "Настройки → Приложения → ARCHANGEL AI → ⋮ → «Разрешить ограниченные настройки», затем снова сюда.",
+            style = TextStyles.BodySmall,
+        )
+        if (!notificationsAccess) {
+            Spacer(Modifier.height(8.dp))
+            Pill("Открыть доступ к уведомлениям", onClick = onOpenNotificationAccess, modifier = Modifier.fillMaxWidth())
+        }
+
+        // ── Умный дом
+        Spacer(Modifier.height(20.dp))
+        MonoLabel("Умный дом · Home Assistant", color = Bone)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Xiaomi, Google, Tuya и другие устройства подключаются к Home Assistant, а я управляю ими голосом: " +
+                "«включи свет в спальне», «выключи кондиционер».",
+            style = TextStyles.BodySmall,
+        )
+        Spacer(Modifier.height(10.dp))
+        Field(label = "Адрес", value = s.haUrl, placeholder = "http://192.168.1.10:8123", onChange = { s = s.copy(haUrl = it) })
+        Field(
+            label = "Токен",
+            value = s.haToken,
+            onChange = { s = s.copy(haToken = it) },
+            secret = true,
+            hint = "Home Assistant → ваш профиль → Безопасность → Долгосрочные токены доступа → Создать.",
         )
 
         // ── Сфера

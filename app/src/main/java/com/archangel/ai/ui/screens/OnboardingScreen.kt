@@ -201,7 +201,8 @@ private fun lineFor(step: Int, name: String): String = when (step) {
         "А как мне обращаться к вам? Напишите имя или нажмите на микрофон и скажите его."
     3 -> (if (name.isNotBlank()) "$name, ч" else "Ч") + "тобы свободно разговаривать и понимать сложные просьбы, " +
         "мне нужен мозг — ключ одной из нейросетей. Без него я выполняю команды телефона, но не веду беседу. " +
-        "Бесплатные варианты — Groq, Gemini и OpenRouter — подойдут для начала, но у них дневные лимиты. " +
+        "Рекомендую Gemini от Google: он бесплатный, умный, понимает фотографии и хорошо говорит по-русски. " +
+        "Ключ создаётся за минуту через аккаунт Google. " +
         "Платные — DeepSeek и Claude — умнее и стабильнее, а стоят копейки за запрос. Выберите любой, я подскажу, что делать."
     4 -> "Теперь выберем мой голос. Нажмите «Послушать», чтобы сравнить варианты."
     else -> "Всё готово" + (if (name.isNotBlank()) ", $name" else "") +
@@ -335,7 +336,11 @@ private fun BrainStep(draft: AppSettings, onChange: (AppSettings) -> Unit, onTes
 
     Text("Подключим\nмой мозг.", style = TextStyles.Display)
     Spacer(Modifier.height(8.dp))
-    Text("Нужен ключ одной нейросети. Начните с бесплатного — сменить можно в любой момент.", style = TextStyles.BodySmall)
+    Text(
+        "Нужен ключ одной нейросети. Рекомендую Gemini: бесплатный, умный, видит фото, отлично знает русский. " +
+            "Ключ — через ваш аккаунт Google за минуту. Сменить мозг можно в любой момент.",
+        style = TextStyles.BodySmall,
+    )
 
     Spacer(Modifier.height(16.dp))
     Panel(Modifier.fillMaxWidth()) {
@@ -465,7 +470,17 @@ fun BrainTiles(options: List<Brain>, selected: Brain, onSelect: (Brain) -> Unit)
                 border = if (on) null else BorderStroke(1.dp, Hairline),
             ) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    Text(b.title, style = TextStyles.Button, color = if (on) Obsidian else Bone)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(b.title, style = TextStyles.Button, color = if (on) Obsidian else Bone)
+                        if (b.recommended) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "РЕКОМЕНДУЮ",
+                                style = TextStyles.Label.copy(fontSize = 9.sp),
+                                color = if (on) Obsidian else Ember,
+                            )
+                        }
+                    }
                     Text(b.note, style = TextStyles.Label.copy(fontSize = 11.sp), color = if (on) Obsidian.copy(alpha = 0.65f) else Smoke)
                 }
             }

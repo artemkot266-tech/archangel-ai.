@@ -32,6 +32,8 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +42,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -70,6 +75,10 @@ fun ChatScreen(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onMic: () -> Unit,
+    pendingImage: String? = null,
+    onCamera: () -> Unit = {},
+    onGallery: () -> Unit = {},
+    onClearImage: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -98,7 +107,23 @@ fun ChatScreen(
             if (partial.isNotBlank()) item(key = "partial") { UserLine("$partial…", ghost = true) }
             if (thinking) item(key = "thinking") { ThinkingLine() }
         }
+        if (pendingImage != null) {
+            Row(
+                Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PhotoThumb(pendingImage, 64.dp)
+                Spacer(Modifier.width(10.dp))
+                Text("Фото прикреплено — спросите, что на нём", style = TextStyles.BodySmall, modifier = Modifier.weight(1f))
+                androidx.compose.material3.IconButton(onClick = onClearImage) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Close, "Убрать фото", tint = Ash)
+                }
+            }
+        }
         InputBar(
+            hasImage = pendingImage != null,
+            onCamera = onCamera,
+            onGallery = onGallery,
             draft = draft,
             listening = state == CoreState.LISTENING,
             onDraftChange = onDraftChange,
@@ -113,7 +138,10 @@ private val timeFmt = SimpleDateFormat("HH:mm", Locale.US)
 @Composable
 private fun MessageRow(m: ChatMessage) {
     when (m.role) {
-        Role.USER -> UserLine(m.text)
+        Role.USER -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            m.image?.let { PhotoThumb(it, 180.dp); Spacer(Modifier.height(6.dp)) }
+            UserLine(m.text)
+        }
         Role.ASSISTANT -> Column(Modifier.fillMaxWidth()) {
             MonoLabel("Archangel · ${timeFmt.format(Date(m.time))}", color = Smoke)
             Spacer(Modifier.height(6.dp))
@@ -170,7 +198,25 @@ private fun ThinkingLine() {
 }
 
 @Composable
+private fun PhotoThumb(path: String, size: androidx.compose.ui.unit.Dp) {
+    val bmp = androidx.compose.runtime.remember(path) { com.archangel.ai.features.ImageUtil.thumbnail(path) }
+    if (bmp != null) {
+        androidx.compose.foundation.Image(
+            bitmap = bmp.asImageBitmap(),
+            contentDescription = "Фото",
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(16.dp)),
+        )
+    }
+}
+
+@Composable
 private fun InputBar(
+    hasImage: Boolean,
+    onCamera: () -> Unit,
+    onGallery: () -> Unit,
     draft: String,
     listening: Boolean,
     onDraftChange: (String) -> Unit,
@@ -184,6 +230,14 @@ private fun InputBar(
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        var menu by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+        Box {
+            RoundIcon(androidx.compose.material.icons.Icons.Filled.PhotoCamera, "Фото для вопроса", onClick = { menu = true })
+            androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                androidx.compose.material3.DropdownMenuItem(text = { Text("Снять фото") }, onClick = { menu = false; onCamera() })
+                androidx.compose.material3.DropdownMenuItem(text = { Text("Из галереи") }, onClick = { menu = false; onGallery() })
+            }
+        }
         Box(
             Modifier
                 .weight(1f)
@@ -205,7 +259,7 @@ private fun InputBar(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        if (draft.isBlank()) {
+        if (draft.isBlank() && !hasImage) {
             RoundIcon(
                 if (listening) Icons.Filled.Stop else Icons.Filled.Mic,
                 description = if (listening) "Остановить запись" else "Голосовой ввод",
