@@ -102,6 +102,14 @@ sealed class PhoneAction {
     data class ExpenseSummary(val period: String, val category: String? = null) : PhoneAction()
     /** «Удали последний расход». */
     object ExpenseUndo : PhoneAction()
+    /** «Выпил стакан воды» — ml миллилитров. */
+    data class WaterDrink(val ml: Int) : PhoneAction()
+    /** «Сколько я выпил воды?» */
+    object WaterSummary : PhoneAction()
+    /** «Норма воды 2,5 литра». */
+    data class WaterGoal(val ml: Int) : PhoneAction()
+    /** «Удали последний стакан». */
+    object WaterUndo : PhoneAction()
 }
 
 enum class VolumeDir { UP, DOWN, MUTE, MAX }

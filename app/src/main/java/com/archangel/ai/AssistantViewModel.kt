@@ -30,6 +30,8 @@ import com.archangel.ai.features.CalendarHelper
 import com.archangel.ai.features.ExpensePeriod
 import com.archangel.ai.features.ExpenseStore
 import com.archangel.ai.features.Expenses
+import com.archangel.ai.features.Water
+import com.archangel.ai.features.WaterStore
 import com.archangel.ai.features.Guardian
 import com.archangel.ai.features.HomeAssistant
 import com.archangel.ai.features.ImageUtil
@@ -501,6 +503,21 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshExpenses() { expenses = expenseStore.all() }
 
     fun deleteExpense(id: Long) { expenseStore.delete(id); refreshExpenses() }
+
+    // ───────────── Вода ─────────────
+
+    private val waterStore = WaterStore(app)
+    var waterToday by mutableStateOf(Water.today(waterStore.all()))
+        private set
+    var waterGoal by mutableStateOf(waterStore.goal())
+        private set
+
+    fun refreshWater() { waterToday = Water.today(waterStore.all()); waterGoal = waterStore.goal() }
+
+    /** Кнопки «+ стакан» на экране «Дела» — без голоса. */
+    fun addWater(ml: Int) { waterStore.add(ml); refreshWater() }
+
+    fun undoWater() { waterStore.undoLast(); refreshWater() }
 
     // ───────────── Память ─────────────
 
@@ -1084,6 +1101,36 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 reply(
                     if (last == null) "Расходов пока нет."
                     else "Удалил расход: ${Expenses.money(last.amount, last.currency)} — ${last.category}.",
+                    viaVoice,
+                )
+            }
+            is PhoneAction.WaterDrink -> {
+                val before = Water.today(waterStore.all())
+                waterStore.add(action.ml)
+                refreshWater()
+                val done = before < waterGoal && waterToday >= waterGoal
+                reply(
+                    "Записал ${Water.format(action.ml)} воды. " +
+                        if (done) "Норма на сегодня выполнена — ${Water.format(waterToday)}. Отлично!" else Water.progressText(waterToday, waterGoal),
+                    viaVoice,
+                )
+            }
+            PhoneAction.WaterSummary -> {
+                refreshWater()
+                navigateTo = AppScreen.TASKS
+                reply(Water.progressText(waterToday, waterGoal), viaVoice)
+            }
+            is PhoneAction.WaterGoal -> {
+                waterStore.setGoal(action.ml)
+                refreshWater()
+                reply("Норма воды теперь ${Water.format(action.ml)} в день. ${Water.progressText(waterToday, waterGoal)}", viaVoice)
+            }
+            PhoneAction.WaterUndo -> {
+                val last = waterStore.undoLast()
+                refreshWater()
+                reply(
+                    if (last == null) "Записей о воде пока нет."
+                    else "Удалил ${Water.format(last.ml)} воды. ${Water.progressText(waterToday, waterGoal)}",
                     viaVoice,
                 )
             }

@@ -1,6 +1,7 @@
 package com.archangel.ai.phone
 
 import com.archangel.ai.features.Expenses
+import com.archangel.ai.features.Water
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -123,6 +124,23 @@ object CommandParser {
             .find(s)?.let { return PhoneAction.FindPhone(true) }
         Regex("(?iu)^(нашел|нашла|нашли|я тебя нашел|я тебя нашла|хватит звонить|выключи сигнал|стоп сигнал)$")
             .find(s)?.let { return PhoneAction.FindPhone(false) }
+
+        // Трекер воды: «выпил стакан воды», «сколько я выпил воды», «норма воды 2 литра», «удали последний стакан»
+        Regex("(?iu)^(удали|отмени|убери|сотри)\\s+(последн[\\p{L}]*\\s+)?(стакан|стакан воды|воду|запись воды|запись о воде)$").find(s)
+            ?.let { return PhoneAction.WaterUndo }
+        Regex("(?iu)^((поставь|установи|измени|сделай|задай)\\s+)?(моя\\s+)?(норм[\\p{L}]*\\s+(воды|питья)|цель по воде)\\s*(на\\s+)?[:-]?\\s*(.+)$").find(s)?.let {
+            Water.parseGoal(it.groupValues[7])?.let { ml -> return PhoneAction.WaterGoal(ml) }
+        }
+        Regex("(?iu)^(сколько\\s+(я\\s+)?(выпил[\\p{L}]*\\s+|попил[\\p{L}]*\\s+)?воды(\\s+.*)?|сколько\\s+(я\\s+)?(выпил|выпила)(\\s+сегодня)?|(покажи\\s+)?(мой\\s+)?(водный баланс|воду за сегодня)|сколько (мне )?осталось (пить|выпить)( воды)?( сегодня)?)$")
+            .find(s)?.let { return PhoneAction.WaterSummary }
+        Regex("(?iu)^(я\\s+)?(выпил|выпила|выпили|попил|попила|попили)\\s+(.+)$").find(s)?.let {
+            val rest = it.groupValues[3]
+            if (Water.mentionsWater(rest)) Water.parseAmount(rest)?.let { ml -> return PhoneAction.WaterDrink(ml) }
+        }
+        Regex("(?iu)^(запиши|добавь|отметь|плюс)\\s+(.+)$").find(s)?.let {
+            val rest = it.groupValues[2]
+            if (Water.mentionsWater(rest) && Water.hasAmount(rest)) Water.parseAmount(rest)?.let { ml -> return PhoneAction.WaterDrink(ml) }
+        }
 
         // Учёт расходов: «потратил 200 на кофе», «сколько я потратил за неделю», «удали последний расход»
         Regex("(?iu)^(удали|отмени|убери|сотри)\\s+(последн[\\p{L}]*\\s+)?(расход|трату|покупку)$").find(s)

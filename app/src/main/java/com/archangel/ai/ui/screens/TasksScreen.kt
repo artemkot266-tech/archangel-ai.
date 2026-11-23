@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.archangel.ai.features.Expense
 import com.archangel.ai.features.ExpensePeriod
 import com.archangel.ai.features.Expenses
+import com.archangel.ai.features.Water
 import com.archangel.ai.phone.CommandParser
 import com.archangel.ai.tasks.Note
 import com.archangel.ai.tasks.Reminder
@@ -57,7 +58,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** «Дела»: напоминания, заметки и расходы. Всё создаётся и голосом: «напомни…», «запиши заметку…». */
+/** «Дела»: напоминания, заметки, вода и расходы. Всё создаётся и голосом: «напомни…», «запиши заметку…». */
 @Composable
 fun TasksScreen(
     notes: List<Note>,
@@ -69,6 +70,10 @@ fun TasksScreen(
     onSay: (String) -> Unit,
     expenses: List<Expense> = emptyList(),
     onDeleteExpense: (Long) -> Unit = {},
+    waterToday: Int = 0,
+    waterGoal: Int = Water.DEFAULT_GOAL,
+    onAddWater: (Int) -> Unit = {},
+    onUndoWater: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LaunchedEffect(Unit) { onRefresh() }
@@ -132,6 +137,39 @@ fun TasksScreen(
         val fmt = SimpleDateFormat("d MMM, HH:mm", Locale("ru"))
         notes.forEach { n ->
             ItemRow(title = n.text, sub = fmt.format(Date(n.created)), accent = false, onDelete = { onDeleteNote(n.id) })
+        }
+
+        // ── Вода
+        Spacer(Modifier.height(28.dp))
+        Text("Вода", style = TextStyles.Title)
+        Spacer(Modifier.height(4.dp))
+        Text("Скажите: «Выпил стакан воды», «Сколько я выпил воды?» или «Норма воды 2,5 литра».", style = TextStyles.BodySmall)
+        Spacer(Modifier.height(12.dp))
+        val waterDone = waterToday >= waterGoal
+        MonoLabel(
+            "СЕГОДНЯ · ${Water.format(waterToday).uppercase()} / ${Water.format(waterGoal).uppercase()}" +
+                if (waterDone) " · НОРМА ✓" else "",
+            color = if (waterDone) Ember else Ash,
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .background(Hairline, RoundedCornerShape(50)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(Water.fraction(waterToday, waterGoal))
+                    .height(4.dp)
+                    .background(Ember, RoundedCornerShape(50)),
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill("+250 мл", onClick = { onAddWater(Water.GLASS) }, accent = true, height = 40.dp)
+            Pill("+500 мл", onClick = { onAddWater(Water.BOTTLE) }, height = 40.dp)
+            Pill("Отмена", onClick = onUndoWater, enabled = waterToday > 0, height = 40.dp)
         }
 
         // ── Расходы
